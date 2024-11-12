@@ -7,7 +7,6 @@ private import codeql.ruby.Concepts
 private import codeql.ruby.controlflow.CfgNodes
 private import codeql.ruby.DataFlow
 private import codeql.ruby.dataflow.RemoteFlowSources
-private import codeql.ruby.ast.internal.Module
 private import codeql.ruby.ApiGraphs
 
 private API::Node graphQlSchema() { result = API::getTopLevelMember("GraphQL").getMember("Schema") }
@@ -40,13 +39,8 @@ private API::Node graphQlSchema() { result = API::getTopLevelMember("GraphQL").g
  */
 private class GraphqlRelayClassicMutationClass extends ClassDeclaration {
   GraphqlRelayClassicMutationClass() {
-    this.getSuperclassExpr() =
-      graphQlSchema()
-          .getMember("RelayClassicMutation")
-          .getASubclass*()
-          .getAValueReachableFromSource()
-          .asExpr()
-          .getExpr()
+    this =
+      graphQlSchema().getMember("RelayClassicMutation").getADescendentModule().getADeclaration()
   }
 }
 
@@ -75,15 +69,12 @@ private class GraphqlRelayClassicMutationClass extends ClassDeclaration {
  */
 private class GraphqlSchemaResolverClass extends ClassDeclaration {
   GraphqlSchemaResolverClass() {
-    this.getSuperclassExpr() =
-      graphQlSchema()
-          .getMember("Resolver")
-          .getASubclass()
-          .getAValueReachableFromSource()
-          .asExpr()
-          .getExpr()
+    this = graphQlSchema().getMember("Resolver").getADescendentModule().getADeclaration()
   }
 }
+
+/** Gets an HTTP method that is supported for querying a GraphQL server. */
+private string getASupportedHttpMethod() { result = ["get", "post"] }
 
 /**
  * A `ClassDeclaration` for a class that extends `GraphQL::Schema::Object`.
@@ -101,13 +92,7 @@ private class GraphqlSchemaResolverClass extends ClassDeclaration {
  */
 class GraphqlSchemaObjectClass extends ClassDeclaration {
   GraphqlSchemaObjectClass() {
-    this.getSuperclassExpr() =
-      graphQlSchema()
-          .getMember("Object")
-          .getASubclass()
-          .getAValueReachableFromSource()
-          .asExpr()
-          .getExpr()
+    this = graphQlSchema().getMember("Object").getADescendentModule().getADeclaration()
   }
 
   /** Gets a `GraphqlFieldDefinitionMethodCall` called in this class. */
@@ -121,7 +106,7 @@ class GraphqlSchemaObjectClass extends ClassDeclaration {
  * `GraphQL::Schema::RelayClassicMutation` or
  * `GraphQL::Schema::Resolver`.
  *
- * Both of these classes have an overrideable `resolve` instance
+ * Both of these classes have an overridable `resolve` instance
  * method which can receive user input in order to resolve a query or mutation.
  */
 private class GraphqlResolvableClass extends ClassDeclaration {
@@ -145,7 +130,7 @@ private class GraphqlResolvableClass extends ClassDeclaration {
  *
  * ```rb
  * module Mutation
- *   class NameAnInstrument < BaseMutationn
+ *   class NameAnInstrument < BaseMutation
  *     argument :instrument_uuid, Types::Uuid,
  *              required: true,
  *              loads: ::Instrument,
@@ -164,7 +149,7 @@ private class GraphqlResolvableClass extends ClassDeclaration {
  * end
  * ```
  */
-class GraphqlResolveMethod extends Method, HTTP::Server::RequestHandler::Range {
+class GraphqlResolveMethod extends Method, Http::Server::RequestHandler::Range {
   private GraphqlResolvableClass resolvableClass;
 
   GraphqlResolveMethod() { this = resolvableClass.getMethod("resolve") }
@@ -172,6 +157,8 @@ class GraphqlResolveMethod extends Method, HTTP::Server::RequestHandler::Range {
   override Parameter getARoutedParameter() { result = this.getAParameter() }
 
   override string getFramework() { result = "GraphQL" }
+
+  override string getAnHttpMethod() { result = getASupportedHttpMethod() }
 
   /** Gets the mutation class containing this method. */
   GraphqlResolvableClass getMutationClass() { result = resolvableClass }
@@ -189,7 +176,7 @@ class GraphqlResolveMethod extends Method, HTTP::Server::RequestHandler::Range {
  *
  * ```rb
  * module Mutation
- *   class NameAnInstrument < BaseMutationn
+ *   class NameAnInstrument < BaseMutation
  *     argument :instrument_uuid, Types::Uuid,
  *              required: true,
  *              loads: ::Instrument,
@@ -208,7 +195,7 @@ class GraphqlResolveMethod extends Method, HTTP::Server::RequestHandler::Range {
  * end
  * ```
  */
-class GraphqlLoadMethod extends Method, HTTP::Server::RequestHandler::Range {
+class GraphqlLoadMethod extends Method, Http::Server::RequestHandler::Range {
   private GraphqlResolvableClass resolvableClass;
 
   GraphqlLoadMethod() {
@@ -219,6 +206,8 @@ class GraphqlLoadMethod extends Method, HTTP::Server::RequestHandler::Range {
   override Parameter getARoutedParameter() { result = this.getAParameter() }
 
   override string getFramework() { result = "GraphQL" }
+
+  override string getAnHttpMethod() { result = getASupportedHttpMethod() }
 
   /** Gets the mutation class containing this method. */
   GraphqlResolvableClass getMutationClass() { result = resolvableClass }
@@ -233,7 +222,7 @@ private class GraphqlSchemaObjectClassMethodCall extends MethodCall {
 
   GraphqlSchemaObjectClassMethodCall() {
     // e.g. Foo.some_method(...)
-    recvCls.getModule() = resolveConstantReadAccess(this.getReceiver())
+    recvCls.getModule() = this.getReceiver().(ConstantReadAccess).getModule()
     or
     // e.g. self.some_method(...) within a graphql Object or Interface
     this.getReceiver() instanceof SelfVariableAccess and
@@ -264,6 +253,46 @@ class GraphqlFieldDefinitionMethodCall extends GraphqlSchemaObjectClassMethodCal
 
   /** Gets the name of this GraphQL field. */
   string getFieldName() { result = this.getArgument(0).getConstantValue().getStringlikeValue() }
+
+  /**
+   * Gets the type of this field.
+   */
+  GraphqlType getFieldType() { result = this.getArgument(1) }
+
+  /**
+   * Gets an argument call inside this field definition.
+   */
+  GraphqlFieldArgumentDefinitionMethodCall getAnArgumentCall() { result = this.getArgumentCall(_) }
+
+  /**
+   * Gets the argument call for `name` inside this field definition.
+   */
+  GraphqlFieldArgumentDefinitionMethodCall getArgumentCall(string name) {
+    result.getEnclosingCallable() = this.getBlock() and result.getArgumentName() = name
+  }
+}
+
+/**
+ * A call to `argument` in a GraphQL InputObject class.
+ */
+class GraphqlInputObjectArgumentDefinitionCall extends DataFlow::CallNode {
+  GraphqlInputObjectArgumentDefinitionCall() {
+    this =
+      graphQlSchema()
+          .getMember("InputObject")
+          .getADescendentModule()
+          .getAnOwnModuleSelf()
+          .getAMethodCall("argument")
+  }
+
+  /** Gets the name of the argument (i.e. the first argument to this `argument` method call) */
+  string getArgumentName() { result = this.getArgument(0).getConstantValue().getStringlikeValue() }
+
+  /** Gets the type of this argument */
+  GraphqlType getArgumentType() { result = this.getArgument(1).asExpr().getExpr() }
+
+  /** Gets the class representing the receiver of this method. */
+  ClassDeclaration getReceiverClass() { result = this.asExpr().getExpr().getEnclosingModule() }
 }
 
 /**
@@ -300,6 +329,64 @@ private class GraphqlFieldArgumentDefinitionMethodCall extends GraphqlSchemaObje
 
   /** Gets the name of the argument (i.e. the first argument to this `argument` method call) */
   string getArgumentName() { result = this.getArgument(0).getConstantValue().getStringlikeValue() }
+
+  /** Gets the type of this argument */
+  GraphqlType getArgumentType() { result = this.getArgument(1) }
+
+  /**
+   * Gets the element type of this argument, if it is an array.
+   * For example if the argument type is `[String]`, this predicate yields `String`.
+   */
+  GraphqlType getArgumentElementType() {
+    result =
+      any(ArrayLiteral lit | lit = this.getArgument(1) and lit.getNumberOfElements() = 1)
+          .getElement(0)
+  }
+}
+
+private class GraphqlType extends ConstantAccess {
+  /**
+   * Gets the module corresponding to this type, if it exists.
+   */
+  Module getModule() { result.getAnImmediateReference() = this }
+
+  /**
+   * Gets the type of a field/argument of this type, if it is an object type.
+   */
+  GraphqlType getAFieldOrArgument() { result = this.getFieldOrArgument(_) }
+
+  /**
+   * Gets the type of the `name` field/argument of this type, if it exists.
+   */
+  GraphqlType getFieldOrArgument(string name) {
+    result =
+      any(GraphqlFieldDefinitionMethodCall field |
+        field.getFieldName() = name and
+        this.getModule().getADeclaration() = field.getReceiverClass()
+      ).getFieldType() or
+    result =
+      any(GraphqlInputObjectArgumentDefinitionCall arg |
+        arg.getArgumentName() = name and this.getModule().getADeclaration() = arg.getReceiverClass()
+      ).getArgumentType()
+  }
+
+  /**
+   * Holds if this type is an enum.
+   */
+  predicate isEnum() {
+    API::getTopLevelMember("GraphQL")
+        .getMember("Schema")
+        .getMember("Enum")
+        .getADescendentModule()
+        .getAnImmediateReference()
+        .asExpr()
+        .getExpr() = this
+  }
+
+  /**
+   * Holds if this type is scalar - i.e. it is neither an object or an enum.
+   */
+  predicate isScalar() { not exists(this.getAFieldOrArgument()) and not this.isEnum() }
 }
 
 /**
@@ -340,7 +427,7 @@ private class GraphqlFieldArgumentDefinitionMethodCall extends GraphqlSchemaObje
  * end
  * ```
  */
-class GraphqlFieldResolutionMethod extends Method, HTTP::Server::RequestHandler::Range {
+class GraphqlFieldResolutionMethod extends Method, Http::Server::RequestHandler::Range {
   private GraphqlSchemaObjectClass schemaObjectClass;
 
   GraphqlFieldResolutionMethod() {
@@ -361,34 +448,110 @@ class GraphqlFieldResolutionMethod extends Method, HTTP::Server::RequestHandler:
 
   /** Gets the method call which is the definition of the field corresponding to this resolver method. */
   GraphqlFieldDefinitionMethodCall getDefinition() {
-    result
-        .getKeywordArgument("resolver_method")
-        .getConstantValue()
-        .isStringlikeValue(this.getName())
-    or
-    not exists(result.getKeywordArgument("resolver_method").(SymbolLiteral)) and
-    result.getFieldName() = this.getName()
+    result.getEnclosingModule() = this.getEnclosingModule() and
+    (
+      result
+          .getKeywordArgument("resolver_method")
+          .getConstantValue()
+          .isStringlikeValue(this.getName())
+      or
+      not exists(result.getKeywordArgument("resolver_method").(SymbolLiteral)) and
+      result.getFieldName() = this.getName()
+    )
   }
 
   // check for a named argument the same name as a defined argument for this field
   override Parameter getARoutedParameter() {
     result = this.getAParameter() and
     exists(GraphqlFieldArgumentDefinitionMethodCall argDefn |
-      argDefn.getEnclosingCallable() = this.getDefinition().getBlock() and
-      (
-        result.(KeywordParameter).hasName(argDefn.getArgumentName())
-        or
-        // TODO this will cause false positives because now *anything* in the **args
-        // param will be flagged as RoutedParameter/RemoteFlowSource, but really
-        // only the hash keys corresponding to the defined arguments are user input
-        // others could be things defined in the `:extras` keyword argument to the `argument`
-        result instanceof HashSplatParameter // often you see `def field(**args)`
-      )
+      argDefn = this.getDefinition().getAnArgumentCall() and
+      [argDefn.getArgumentType(), argDefn.getArgumentElementType()].isScalar()
+    |
+      result.(KeywordParameter).hasName(argDefn.getArgumentName())
     )
   }
 
   override string getFramework() { result = "GraphQL" }
 
+  override string getAnHttpMethod() { result = getASupportedHttpMethod() }
+
   /** Gets the class containing this method. */
   GraphqlSchemaObjectClass getGraphqlClass() { result = schemaObjectClass }
+}
+
+private DataFlow::CallNode hashParameterAccess(
+  GraphqlFieldResolutionMethod method, HashSplatParameter param, GraphqlType type
+) {
+  exists(
+    DataFlow::LocalSourceNode paramNode, GraphqlFieldArgumentDefinitionMethodCall def, string key
+  |
+    param = method.getAParameter() and
+    paramNode.(DataFlow::ParameterNode).getParameter() = param and
+    def = method.getDefinition().getAnArgumentCall() and
+    (
+      // Direct access to the params hash
+      [def.getArgumentType(), def.getArgumentElementType()] = type and
+      def.getArgumentName() = key and
+      paramNode.flowsTo(hashAccess(result, key))
+      or
+      // Nested access
+      exists(GraphqlType type2 |
+        hashParameterAccess(method, param, type2)
+            .(DataFlow::LocalSourceNode)
+            .flowsTo(hashAccess(result, key)) and
+        type2.getFieldOrArgument(key) = type
+      )
+    )
+  )
+}
+
+private DataFlow::Node parameterAccess(
+  GraphqlFieldResolutionMethod method, DataFlow::LocalSourceNode param, GraphqlType type
+) {
+  param = getAGraphqlParameter(method, type) and
+  result = param
+  or
+  exists(string key, GraphqlType type2 |
+    param = parameterAccess(method, _, type2) and
+    param.flowsTo(hashAccess(result, key)) and
+    type2.getFieldOrArgument(key) = type
+  )
+}
+
+private DataFlow::ParameterNode getAGraphqlParameter(
+  GraphqlFieldResolutionMethod method, GraphqlType type
+) {
+  result.getCallable() = method and
+  (
+    result.getParameter() instanceof KeywordParameter and
+    exists(GraphqlFieldArgumentDefinitionMethodCall c |
+      c = method.getDefinition().getArgumentCall(result.getName())
+    |
+      type = [c.getArgumentType(), c.getArgumentElementType()]
+    )
+    or
+    result.getParameter() instanceof SimpleParameter and
+    type = method.getDefinition().getFieldType()
+  )
+}
+
+/**
+ * Gets the receiver of the hash access `access` with key `key`.
+ * For example, in `h["foo"]` the receiver is `h`, the key is "foo"
+ * and `access` is the dataflow node for the whole expression.
+ */
+private DataFlow::Node hashAccess(DataFlow::CallNode access, string key) {
+  access.asExpr() instanceof ExprNodes::ElementReferenceCfgNode and
+  access.getArgument(0).getConstantValue().isStringlikeValue(key) and
+  access.getReceiver() = result
+}
+
+private class GraphqlParameterAccess extends RemoteFlowSource::Range {
+  GraphqlParameterAccess() {
+    exists(GraphqlType type | type.isScalar() |
+      this = hashParameterAccess(_, _, type) or this = parameterAccess(_, _, type)
+    )
+  }
+
+  override string getSourceType() { result = "GraphQL" }
 }

@@ -12,6 +12,7 @@ private import semmle.python.ApiGraphs
 private import semmle.python.dataflow.new.TaintTracking
 private import semmle.python.frameworks.internal.InstanceTaintStepsHelper
 private import semmle.python.frameworks.Stdlib
+private import semmle.python.frameworks.data.ModelsAsData
 
 /**
  * INTERNAL: Do not use.
@@ -22,17 +23,17 @@ private import semmle.python.frameworks.Stdlib
  * - https://pypi.org/project/requests/
  * - https://requests.readthedocs.io/en/latest/
  */
-private module Requests {
+module Requests {
   /**
    * An outgoing HTTP request, from the `requests` library.
    *
    * See https://requests.readthedocs.io/en/latest/api/#requests.request
    */
-  private class OutgoingRequestCall extends HTTP::Client::Request::Range, API::CallNode {
+  private class OutgoingRequestCall extends Http::Client::Request::Range, API::CallNode {
     string methodName;
 
     OutgoingRequestCall() {
-      methodName in [HTTP::httpVerbLower(), "request"] and
+      methodName in [Http::httpVerbLower(), "request"] and
       (
         this = API::moduleImport("requests").getMember(methodName).getACall()
         or
@@ -91,10 +92,12 @@ private module Requests {
    */
   module Response {
     /** Gets a reference to the `requests.models.Response` class. */
-    private API::Node classRef() {
+    API::Node classRef() {
       result = API::moduleImport("requests").getMember("models").getMember("Response")
       or
       result = API::moduleImport("requests").getMember("Response")
+      or
+      result = ModelOutput::getATypeNode("requests.models.Response~Subclass").getASubclass*()
     }
 
     /**
@@ -113,7 +116,7 @@ private module Requests {
       ClassInstantiation() { this = classRef().getACall() }
     }
 
-    /** Return value from making a reuqest. */
+    /** Return value from making a request. */
     private class RequestReturnValue extends InstanceSource, DataFlow::Node {
       RequestReturnValue() { this = any(OutgoingRequestCall c) }
     }

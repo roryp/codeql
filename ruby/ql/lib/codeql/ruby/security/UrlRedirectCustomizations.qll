@@ -4,13 +4,14 @@
  * own.
  */
 
-private import ruby
+private import codeql.ruby.AST
 private import codeql.ruby.DataFlow
 private import codeql.ruby.Concepts
 private import codeql.ruby.dataflow.RemoteFlowSources
 private import codeql.ruby.dataflow.BarrierGuards
 private import codeql.ruby.dataflow.Sanitizers
 private import codeql.ruby.frameworks.ActionController
+private import codeql.ruby.frameworks.data.internal.ApiGraphModels
 
 /**
  * Provides default sources, sinks and sanitizers for detecting
@@ -34,13 +35,6 @@ module UrlRedirect {
   abstract class Sanitizer extends DataFlow::Node { }
 
   /**
-   * DEPRECATED: Use `Sanitizer` instead.
-   *
-   * A sanitizer guard for "URL redirection" vulnerabilities.
-   */
-  abstract deprecated class SanitizerGuard extends DataFlow::BarrierGuard { }
-
-  /**
    * Additional taint steps for "URL redirection" vulnerabilities.
    */
   predicate isAdditionalTaintStep(DataFlow::Node node1, DataFlow::Node node2) {
@@ -50,14 +44,16 @@ module UrlRedirect {
   /**
    * A source of remote user input, considered as a flow source.
    */
-  class RemoteFlowSourceAsSource extends Source, RemoteFlowSource { }
+  class HttpRequestInputAccessAsSource extends Source, Http::Server::RequestInputAccess {
+    HttpRequestInputAccessAsSource() { this.isThirdPartyControllable() }
+  }
 
   /**
    * A HTTP redirect response, considered as a flow sink.
    */
   class RedirectLocationAsSink extends Sink {
     RedirectLocationAsSink() {
-      exists(HTTP::Server::HttpRedirectResponse e, MethodBase method |
+      exists(Http::Server::HttpRedirectResponse e, MethodBase method |
         this = e.getRedirectLocation() and
         // We only want handlers for GET requests.
         // Handlers for other HTTP methods are not as vulnerable to URL
@@ -78,10 +74,20 @@ module UrlRedirect {
     }
   }
 
+  private class ExternalUrlRedirectSink extends Sink {
+    ExternalUrlRedirectSink() { this = ModelOutput::getASinkNode("url-redirection").asSink() }
+  }
+
   /**
    * A comparison with a constant string, considered as a sanitizer-guard.
    */
   class StringConstCompareAsSanitizer extends Sanitizer, StringConstCompareBarrier { }
+
+  /**
+   * A string concatenation against a constant list, considered as a sanitizer-guard.
+   */
+  class StringConstArrayInclusionAsSanitizer extends Sanitizer, StringConstArrayInclusionCallBarrier
+  { }
 
   /**
    * Some methods will propagate taint to their return values.

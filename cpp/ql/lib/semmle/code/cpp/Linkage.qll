@@ -1,5 +1,5 @@
 /**
- * Proivdes the `LinkTarget` class representing linker invocations during the build process.
+ * Provides the `LinkTarget` class representing linker invocations during the build process.
  */
 
 import semmle.code.cpp.Class
@@ -24,10 +24,10 @@ class LinkTarget extends @link_target {
    * captured as part of the snapshot, then everything is grouped together
    * into a single dummy link target.
    */
-  predicate isDummy() { getBinary().getAbsolutePath() = "" }
+  predicate isDummy() { this.getBinary().getAbsolutePath() = "" }
 
   /** Gets a textual representation of this element. */
-  string toString() { result = getBinary().getAbsolutePath() }
+  string toString() { result = this.getBinary().getAbsolutePath() }
 
   /**
    * Gets a function which was compiled into this link target, or had its

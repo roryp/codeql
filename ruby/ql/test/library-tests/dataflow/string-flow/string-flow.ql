@@ -2,10 +2,11 @@
  * @kind path-problem
  */
 
-import ruby
+import codeql.ruby.AST
 import TestUtilities.InlineFlowTest
-import PathGraph
+import DefaultFlowTest
+import ValueFlow::PathGraph
 
-from DataFlow::PathNode source, DataFlow::PathNode sink, DefaultValueFlowConf conf
-where conf.hasFlowPath(source, sink)
+from ValueFlow::PathNode source, ValueFlow::PathNode sink
+where ValueFlow::flowPath(source, sink)
 select sink, source, sink, "$@", source, source.toString()

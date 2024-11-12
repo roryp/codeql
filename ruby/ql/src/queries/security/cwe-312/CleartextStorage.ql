@@ -13,13 +13,12 @@
  *       external/cwe/cwe-532
  */
 
-import ruby
+import codeql.ruby.AST
 import codeql.ruby.security.CleartextStorageQuery
 import codeql.ruby.security.CleartextStorageCustomizations::CleartextStorage
-import codeql.ruby.DataFlow
-import DataFlow::PathGraph
+import CleartextStorageFlow::PathGraph
 
-from Configuration config, DataFlow::PathNode source, DataFlow::PathNode sink
-where config.hasFlowPath(source, sink)
-select source.getNode(), source, sink, "Sensitive data returned by $@ is stored $@.",
-  source.getNode(), source.getNode().(Source).describe(), sink.getNode(), "here"
+from CleartextStorageFlow::PathNode source, CleartextStorageFlow::PathNode sink
+where CleartextStorageFlow::flowPath(source, sink)
+select sink.getNode(), source, sink, "This stores sensitive data returned by $@ as clear text.",
+  source.getNode(), source.getNode().(Source).describe()

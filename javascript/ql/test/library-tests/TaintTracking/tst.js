@@ -49,4 +49,14 @@ function test() {
 
     const serializeJavaScript = require("serialize-javascript");
     sink(serializeJavaScript(x)) // NOT OK
+
+    function tagged(strings, safe, unsafe) {
+        sink(unsafe) // NOT OK
+        sink(safe) // OK
+        sink(strings) // OK
+    }
+
+    tagged`foo ${"safe"} bar ${x} baz`;
+
+    sink(x.reverse()); // NOT OK
 }

@@ -54,6 +54,8 @@ predicate isUniversalRegExp(RegExpTerm term) {
     or
     child.(RegExpCharacterClass).isUniversalClass()
   )
+  or
+  term.(RegExpSequence).getNumChild() = 0
 }
 
 /**
@@ -85,8 +87,8 @@ class RegExpSearchCall extends DataFlow::MethodCallNode, RegExpQuery {
   DataFlow::RegExpCreationNode regexp;
 
   RegExpSearchCall() {
-    getMethodName() = "search" and
-    regexp.getAReference().flowsTo(getArgument(0))
+    this.getMethodName() = "search" and
+    regexp.getAReference().flowsTo(this.getArgument(0))
   }
 
   override RegExpTerm getRegExp() { result = regexp.getRoot() }
@@ -116,6 +118,6 @@ where
     call instanceof RegExpSearchCall and
     not term.getAChild*() instanceof RegExpDollar and
     message =
-      "This regular expression always the matches at index 0 when used $@, as it matches the empty substring."
+      "This regular expression always matches at index 0 when used $@, as it matches the empty substring."
   )
 select term, message, call, "here"

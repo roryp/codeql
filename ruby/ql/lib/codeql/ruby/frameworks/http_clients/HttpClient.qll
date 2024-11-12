@@ -2,11 +2,10 @@
  * Provides modeling for the `HTTPClient` library.
  */
 
-private import ruby
+private import codeql.ruby.AST
 private import codeql.ruby.Concepts
 private import codeql.ruby.ApiGraphs
 private import codeql.ruby.DataFlow
-private import codeql.ruby.dataflow.internal.DataFlowImplForHttpClientLibraries as DataFlowImplForHttpClientLibraries
 
 /**
  * A call that makes an HTTP request using `HTTPClient`.
@@ -15,7 +14,7 @@ private import codeql.ruby.dataflow.internal.DataFlowImplForHttpClientLibraries 
  * HTTPClient.get_content("http://example.com")
  * ```
  */
-class HttpClientRequest extends HTTP::Client::Request::Range, DataFlow::CallNode {
+class HttpClientRequest extends Http::Client::Request::Range, DataFlow::CallNode {
   API::Node requestNode;
   API::Node connectionNode;
   string method;
@@ -25,7 +24,7 @@ class HttpClientRequest extends HTTP::Client::Request::Range, DataFlow::CallNode
       [
         // One-off requests
         API::getTopLevelMember("HTTPClient"),
-        // Conncection re-use
+        // Connection re-use
         API::getTopLevelMember("HTTPClient").getInstance()
       ] and
     requestNode = connectionNode.getReturn(method) and
@@ -61,11 +60,11 @@ class HttpClientRequest extends HTTP::Client::Request::Range, DataFlow::CallNode
           .getArgument(0)
   }
 
+  cached
   override predicate disablesCertificateValidation(
     DataFlow::Node disablingNode, DataFlow::Node argumentOrigin
   ) {
-    any(HttpClientDisablesCertificateValidationConfiguration config)
-        .hasFlow(argumentOrigin, disablingNode) and
+    HttpClientDisablesCertificateValidationFlow::flow(argumentOrigin, disablingNode) and
     disablingNode = this.getCertificateValidationControllingValue()
   }
 
@@ -73,16 +72,15 @@ class HttpClientRequest extends HTTP::Client::Request::Range, DataFlow::CallNode
 }
 
 /** A configuration to track values that can disable certificate validation for HttpClient. */
-private class HttpClientDisablesCertificateValidationConfiguration extends DataFlowImplForHttpClientLibraries::Configuration {
-  HttpClientDisablesCertificateValidationConfiguration() {
-    this = "HttpClientDisablesCertificateValidationConfiguration"
-  }
-
-  override predicate isSource(DataFlow::Node source) {
+private module HttpClientDisablesCertificateValidationConfig implements DataFlow::ConfigSig {
+  predicate isSource(DataFlow::Node source) {
     source = API::getTopLevelMember("OpenSSL").getMember("SSL").getMember("VERIFY_NONE").asSource()
   }
 
-  override predicate isSink(DataFlow::Node sink) {
+  predicate isSink(DataFlow::Node sink) {
     sink = any(HttpClientRequest req).getCertificateValidationControllingValue()
   }
 }
+
+private module HttpClientDisablesCertificateValidationFlow =
+  DataFlow::Global<HttpClientDisablesCertificateValidationConfig>;

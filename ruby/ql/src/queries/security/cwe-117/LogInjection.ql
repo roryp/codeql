@@ -11,11 +11,11 @@
  *       external/cwe/cwe-117
  */
 
-import ruby
-import DataFlow::PathGraph
+import codeql.ruby.AST
 import codeql.ruby.security.LogInjectionQuery
+import LogInjectionFlow::PathGraph
 
-from LogInjectionConfiguration config, DataFlow::PathNode source, DataFlow::PathNode sink
-where config.hasFlowPath(source, sink)
-select sink.getNode(), source, sink, "$@ flows to log entry.", source.getNode(),
-  "User-provided value"
+from LogInjectionFlow::PathNode source, LogInjectionFlow::PathNode sink
+where LogInjectionFlow::flowPath(source, sink)
+select sink.getNode(), source, sink, "Log entry depends on a $@.", source.getNode(),
+  "user-provided value"

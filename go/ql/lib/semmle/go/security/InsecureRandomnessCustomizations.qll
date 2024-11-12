@@ -40,7 +40,9 @@ module InsecureRandomness {
    * Gets an interface outside of the `crypto` package which is the same as an
    * interface in the `crypto` package.
    */
-  string nonCryptoInterface() { result = ["io.Writer", "io.Reader", "sync.Mutex", "net.Listener"] }
+  string nonCryptoInterface() {
+    result = ["io.Writer", "io.Reader", "sync.Map", "sync.Mutex", "net.Listener"]
+  }
 
   /**
    * A cryptographic algorithm.
@@ -57,6 +59,7 @@ module InsecureRandomness {
         not (pkg = "crypto/rand" and name = "Read") and
         // `crypto/cipher` APIs for reading/writing encrypted streams
         not (pkg = "crypto/cipher" and name = ["Read", "Write"]) and
+        not (pkg = "crypto/tls" and name = ["Client", "Dial", "DialWithDialer"]) and
         // Some interfaces in the `crypto` package are the same as interfaces
         // elsewhere, e.g. tls.listener is the same as net.Listener
         not fn.hasQualifiedName(nonCryptoInterface(), _) and
@@ -64,7 +67,7 @@ module InsecureRandomness {
       )
     }
 
-    override string getKind() { result = "this cryptographic algorithm" }
+    override string getKind() { result = "This cryptographic algorithm" }
   }
 
   /**
@@ -75,7 +78,7 @@ module InsecureRandomness {
       this.getRoot().(FuncDef).getName().regexpMatch("(?i).*(gen(erate)?|salt|make|mk)Password.*")
     }
 
-    override string getKind() { result = "a password-related function" }
+    override string getKind() { result = "A password-related function" }
   }
 
   /** Gets a package that implements hash algorithms. */

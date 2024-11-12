@@ -2,7 +2,6 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Semmle.Extraction.CSharp.Populators;
-using Semmle.Extraction.Entities;
 using Semmle.Extraction.Kinds;
 
 namespace Semmle.Extraction.CSharp.Entities
@@ -107,6 +106,11 @@ namespace Semmle.Extraction.CSharp.Entities
                     return Expression.ValueAsString(val);
                 }
 
+                if (TryGetStringValueFromUtf8Literal(out var s))
+                {
+                    return s;
+                }
+
                 return null;
             }
         }
@@ -120,11 +124,6 @@ namespace Semmle.Extraction.CSharp.Entities
                 if (cachedLocation is null)
                     cachedLocation = Context.CreateLocation(CodeAnalysisLocation);
                 return cachedLocation;
-            }
-
-            set
-            {
-                cachedLocation = value;
             }
         }
 
@@ -181,9 +180,20 @@ namespace Semmle.Extraction.CSharp.Entities
             return isTrue || isFalse;
         }
 
+        private bool TryGetStringValueFromUtf8Literal(out string? value)
+        {
+            value = null;
+            if (Node.IsKind(SyntaxKind.Utf8StringLiteralExpression) && Node is LiteralExpressionSyntax literal)
+            {
+                value = literal.Token.ValueText;
+                return true;
+            }
+            return false;
+        }
+
         public bool IsBoolLiteral()
         {
-            return TryGetBoolValueFromLiteral(out var _);
+            return TryGetBoolValueFromLiteral(out _);
         }
     }
 }

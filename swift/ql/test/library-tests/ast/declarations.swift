@@ -153,3 +153,42 @@ class Derived : Baz {}
 
 // multiple conversions
 var d: Baz? = Derived() as Baz
+
+func ifConfig() {
+  #if FOO
+  1
+  2
+  3
+  #else
+  4
+  5
+  6
+  #endif
+
+  #if BAR
+  7
+  8
+  #endif
+
+  #if true
+  9
+  10
+  #else
+  11
+  12
+  #endif
+}
+
+class B {}
+typealias A = B
+typealias C = Int?
+
+class S {
+  var bf1 = 0
+  func captureThis() {
+    var x = 0
+    var f = { [self, x] () in
+      self.bf1 = x
+    };
+  }
+}

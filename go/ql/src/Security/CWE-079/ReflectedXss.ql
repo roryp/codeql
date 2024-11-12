@@ -13,20 +13,19 @@
  */
 
 import go
-import semmle.go.security.ReflectedXss::ReflectedXss
-import DataFlow::PathGraph
+import semmle.go.security.ReflectedXss
+import ReflectedXss::Flow::PathGraph
 
 from
-  Configuration cfg, DataFlow::PathNode source, DataFlow::PathNode sink, string msg, string part,
+  ReflectedXss::Flow::PathNode source, ReflectedXss::Flow::PathNode sink, string msg, string part,
   Locatable partloc
 where
-  cfg.hasFlowPath(source, sink) and
+  ReflectedXss::Flow::flowPath(source, sink) and
   (
     exists(string kind | kind = sink.getNode().(SharedXss::Sink).getSinkKind() |
       kind = "rawtemplate" and
-      msg =
-        "Cross-site scripting vulnerability due to $@. This template argument is instantiated raw $@." and
-      part = "here"
+      msg = "Cross-site scripting vulnerability due to $@. The value is $@." and
+      part = "instantiated as a raw template"
     )
     or
     not exists(sink.getNode().(SharedXss::Sink).getSinkKind()) and

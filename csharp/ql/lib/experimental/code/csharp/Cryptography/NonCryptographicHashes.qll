@@ -1,4 +1,4 @@
-/*
+/**
  * Predicates that help detect potential non-cryptographic hash functions
  *
  * By themselves, non-cryptographic functions are common and not dangerous
@@ -10,7 +10,9 @@ import csharp
 private import DataFlow
 private import semmle.code.csharp.dataflow.TaintTracking2
 
-predicate maybeANonCryptogrphicHash(Callable callable, Variable v, Expr xor, Expr mul, LoopStmt loop) {
+predicate maybeANonCryptographicHash(
+  Callable callable, Variable v, Expr xor, Expr mul, LoopStmt loop
+) {
   callable = loop.getEnclosingCallable() and
   (
     maybeUsedInFnvFunction(v, xor, mul, loop) or
@@ -36,9 +38,6 @@ predicate maybeUsedInFnvFunction(Variable v, Operation xor, Operation mul, LoopS
   loop.getAChild*() = mul.getEnclosingStmt() and
   loop.getAChild*() = xor.getEnclosingStmt()
 }
-
-/** DEPRECATED: Alias for maybeUsedInFnvFunction */
-deprecated predicate maybeUsedInFNVFunction = maybeUsedInFnvFunction/4;
 
 /**
  * Holds if the arguments are used in a way that resembles an Elf-Hash hash function
@@ -74,8 +73,8 @@ private predicate maybeUsedInElfHashFunction(Variable v, Operation xor, Operatio
  * where the parameter `param` is likely the message to hash
  */
 predicate isCallableAPotentialNonCryptographicHashFunction(Callable callable, Parameter param) {
-  exists(Variable v, Expr op1, Expr op2, LoopStmt loop |
-    maybeANonCryptogrphicHash(callable, v, op1, op2, loop) and
+  exists(Expr op1, Expr op2 |
+    maybeANonCryptographicHash(callable, _, op1, op2, _) and
     callable.getAParameter() = param and
     exists(ParameterNode p, ExprNode n |
       p.getParameter() = param and

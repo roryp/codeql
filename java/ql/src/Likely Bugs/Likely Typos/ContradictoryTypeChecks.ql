@@ -40,11 +40,13 @@ predicate contradictoryTypeCheck(Expr e, Variable v, RefType t, RefType sup, Exp
     requiresInstanceOf(e, ssa.getAUse(), t) and
     sup = t.getAnAncestor() and
     instanceOfCheck(cond, ssa.getAUse(), sup) and
-    cond.(Guard).controls(e.getBasicBlock(), false)
+    cond.(Guard).controls(e.getBasicBlock(), false) and
+    not t instanceof ErrorType and
+    not sup instanceof ErrorType
   )
 }
 
 from Expr e, Variable v, RefType t, RefType sup, Expr cond
 where contradictoryTypeCheck(e, v, t, sup, cond)
-select e, "Variable $@ cannot be of type $@ here, since $@ ensures that it is not of type $@.", v,
+select e, "This access of $@ cannot be of type $@, since $@ ensures that it is not of type $@.", v,
   v.getName(), t, t.getName(), cond, "this expression", sup, sup.getName()

@@ -8,34 +8,65 @@
  * @precision high
  * @id java/file-path-injection
  * @tags security
- *       external/cwe-073
+ *       experimental
+ *       external/cwe/cwe-073
  */
 
 import java
+import semmle.code.java.dataflow.TaintTracking
+import semmle.code.java.dataflow.ExternalFlow
 import semmle.code.java.dataflow.FlowSources
-import semmle.code.java.security.PathCreation
+import semmle.code.java.security.TaintedPathQuery
 import JFinalController
-import experimental.semmle.code.java.PathSanitizer
-import DataFlow::PathGraph
+import semmle.code.java.security.PathSanitizer
+private import semmle.code.java.security.Sanitizers
+import InjectFilePathFlow::PathGraph
 
-class InjectFilePathConfig extends TaintTracking::Configuration {
-  InjectFilePathConfig() { this = "InjectFilePathConfig" }
+private class ActivateModels extends ActiveExperimentalModels {
+  ActivateModels() { this = "file-path-injection" }
+}
 
-  override predicate isSource(DataFlow::Node source) { source instanceof RemoteFlowSource }
-
-  override predicate isSink(DataFlow::Node sink) {
-    sink.asExpr() = any(PathCreation p).getAnInput() and
-    not sink instanceof NormalizedPathNode
-  }
-
-  override predicate isSanitizer(DataFlow::Node node) {
-    exists(Type t | t = node.getType() | t instanceof BoxedType or t instanceof PrimitiveType)
+/** A complementary sanitizer that protects against path traversal using path normalization. */
+class PathNormalizeSanitizer extends MethodCall {
+  PathNormalizeSanitizer() {
+    exists(RefType t |
+      t instanceof TypePath or
+      t.hasQualifiedName("kotlin.io", "FilesKt")
+    |
+      this.getMethod().getDeclaringType() = t and
+      this.getMethod().hasName("normalize")
+    )
     or
-    node instanceof PathTraversalSanitizer
+    this.getMethod().getDeclaringType() instanceof TypeFile and
+    this.getMethod().hasName(["getCanonicalPath", "getCanonicalFile"])
   }
 }
 
-from DataFlow::PathNode source, DataFlow::PathNode sink, InjectFilePathConfig conf
-where conf.hasFlowPath(source, sink)
+/** A node with path normalization. */
+class NormalizedPathNode extends DataFlow::Node {
+  NormalizedPathNode() {
+    TaintTracking::localExprTaint(this.asExpr(), any(PathNormalizeSanitizer ma))
+  }
+}
+
+module InjectFilePathConfig implements DataFlow::ConfigSig {
+  predicate isSource(DataFlow::Node source) { source instanceof ActiveThreatModelSource }
+
+  predicate isSink(DataFlow::Node sink) {
+    sink instanceof TaintedPathSink and
+    not sink instanceof NormalizedPathNode
+  }
+
+  predicate isBarrier(DataFlow::Node node) {
+    node instanceof SimpleTypeSanitizer
+    or
+    node instanceof PathInjectionSanitizer
+  }
+}
+
+module InjectFilePathFlow = TaintTracking::Global<InjectFilePathConfig>;
+
+from InjectFilePathFlow::PathNode source, InjectFilePathFlow::PathNode sink
+where InjectFilePathFlow::flowPath(source, sink)
 select sink.getNode(), source, sink, "External control of file name or path due to $@.",
   source.getNode(), "user-provided value"

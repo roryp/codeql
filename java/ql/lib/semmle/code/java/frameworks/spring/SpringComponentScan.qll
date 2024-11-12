@@ -23,9 +23,6 @@ class SpringXmlComponentScan extends SpringXmlElement {
   string getAProfileExpr() { result = this.getSpringBeanFile().getAProfileExpr() }
 }
 
-/** DEPRECATED: Alias for SpringXmlComponentScan */
-deprecated class SpringXMLComponentScan = SpringXmlComponentScan;
-
 /**
  * An annotation of a class that configures which packages are considered to be "base" packages
  * when performing the Spring component scan.
@@ -40,16 +37,10 @@ class SpringComponentScan extends Annotation {
    */
   string getBasePackages() {
     // "value" and "basePackages" are synonymous, and are simple strings
-    result = this.getAValue("basePackages").(StringLiteral).getValue()
+    result = this.getAStringArrayValue(["basePackages", "value"])
     or
-    result = this.getAValue("value").(StringLiteral).getValue()
-    or
-    exists(TypeLiteral typeLiteral |
-      // Base package classes are type literals whose package should be considered a base package.
-      typeLiteral = this.getAValue("basePackageClasses")
-    |
-      result = typeLiteral.getReferencedType().(RefType).getPackage().getName()
-    )
+    // Base package classes are type literals whose package should be considered a base package.
+    result = this.getATypeArrayValue("basePackageClasses").(RefType).getPackage().getName()
   }
 }
 
@@ -144,8 +135,7 @@ class SpringComponent extends RefType {
     if exists(this.getComponentAnnotation().getValue("value"))
     then
       // If the name has been specified in the component annotation, use that.
-      result =
-        this.getComponentAnnotation().getValue("value").(CompileTimeConstantExpr).getStringValue()
+      result = this.getComponentAnnotation().getStringValue("value")
     else
       // Otherwise use the name of the class, with the initial letter lower cased.
       exists(string name | name = this.getName() |
@@ -204,7 +194,7 @@ class SpringComponent extends RefType {
           .getType()
           .hasQualifiedName("org.springframework.context.annotation", "Profile")
     |
-      result = profileAnnotation.getAValue("value").(StringLiteral).getValue()
+      result = profileAnnotation.getAStringArrayValue("value")
     )
   }
 }

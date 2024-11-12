@@ -1,8 +1,9 @@
 name: codeql/csharp-solorigate-all
-version: 1.2.5-dev
+version: 1.7.29-dev
 groups:
-    - csharp
-    - solorigate
+  - csharp
+  - solorigate
 library: true
 dependencies:
-    codeql/csharp-all: "*"
+  codeql/csharp-all: ${workspace}
+warnOnImplicitThis: true

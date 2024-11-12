@@ -5,7 +5,7 @@
 private import codeql.ruby.Concepts
 private import codeql.ruby.AST
 private import codeql.ruby.DataFlow
-private import codeql.ruby.typetracking.TypeTracker
+private import codeql.ruby.typetracking.TypeTracking
 private import codeql.ruby.ApiGraphs
 private import codeql.ruby.controlflow.CfgNodes as CfgNodes
 
@@ -45,6 +45,44 @@ private class NokogiriXmlParserCall extends XmlParserCall::Range, DataFlow::Call
   }
 }
 
+/** Execution of a XPath statement. */
+private class NokogiriXPathExecution extends XPathExecution::Range, DataFlow::CallNode {
+  NokogiriXPathExecution() {
+    exists(NokogiriXmlParserCall parserCall |
+      this = parserCall.getAMethodCall(["xpath", "at_xpath", "search", "at"])
+    )
+  }
+
+  override DataFlow::Node getXPath() { result = this.getArgument(0) }
+}
+
+/**
+ * Holds if `assign` enables the `default_substitute_entities` option in
+ * libxml-ruby.
+ */
+private predicate enablesLibXmlDefaultEntitySubstitution(AssignExpr assign) {
+  // look for an assignment inside:
+  // XML.class_eval do
+  //   def self.default_substitute_entities
+  //     ...
+  //   end
+  // end
+  exists(MethodCall classEvalCall, SingletonMethod defaultSubstituteEntitiesMethod |
+    classEvalCall.getMethodName() = "class_eval" and
+    classEvalCall.getReceiver().(ConstantReadAccess).getName() = "XML" and
+    defaultSubstituteEntitiesMethod.getName() = "default_substitute_entities" and
+    defaultSubstituteEntitiesMethod.getEnclosingCallable() = classEvalCall.getBlock() and
+    defaultSubstituteEntitiesMethod = assign.getEnclosingMethod()
+  ) and
+  // that assignment should be to `default_substitute_entities`.
+  exists(MethodCall c | c = assign.getLeftOperand() |
+    c.getMethodName() = "default_substitute_entities" and
+    c.getReceiver().(ConstantReadAccess).getName() = "XML"
+  ) and
+  // and the right-hand side should be true
+  assign.getRightOperand().getConstantValue().isBoolean(true)
+}
+
 private class LibXmlRubyXmlParserCall extends XmlParserCall::Range, DataFlow::CallNode {
   LibXmlRubyXmlParserCall() {
     this =
@@ -66,7 +104,95 @@ private class LibXmlRubyXmlParserCall extends XmlParserCall::Range, DataFlow::Ca
           trackDisableFeature(TNONET())
         ].asExpr()
     )
+    or
+    // If the database contains a call to set `default_substitute_entities` to
+    // true, then we assume external entities are enabled for this call
+    enablesLibXmlDefaultEntitySubstitution(_)
   }
+}
+
+/**
+ * Holds if `call` sets `ActiveSupport::XmlMini.backend` to `"LibXML"`.
+ */
+private predicate setsXmlMiniBackendToLibXml(DataFlow::CallNode call) {
+  call = API::getTopLevelMember("ActiveSupport").getMember("XmlMini").getAMethodCall("backend=") and
+  call.getArgument(0)
+      .asExpr()
+      .(CfgNodes::ExprNodes::AssignExprCfgNode)
+      .getRhs()
+      .getConstantValue()
+      .isString("LibXML")
+}
+
+/**
+ * Holds if the database contains a call that sets
+ * `ActiveSupport::XmlMini.backend` to `"LibXML"` as well as a call to enable
+ * LibXML's `default_substitute_entities`.
+ */
+private predicate xmlMiniEntitySubstitutionEnabled() {
+  setsXmlMiniBackendToLibXml(_) and
+  enablesLibXmlDefaultEntitySubstitution(_)
+}
+
+/** Execution of a XPath statement. */
+private class LibXmlXPathExecution extends XPathExecution::Range, DataFlow::CallNode {
+  LibXmlXPathExecution() {
+    exists(LibXmlRubyXmlParserCall parserCall |
+      this = parserCall.getAMethodCall(["find", "find_first"])
+    )
+  }
+
+  override DataFlow::Node getXPath() { result = this.getArgument(0) }
+}
+
+/** A call to `REXML::Document.new`, considered as a XML parsing. */
+private class RexmlParserCall extends XmlParserCall::Range, DataFlow::CallNode {
+  RexmlParserCall() {
+    this = API::getTopLevelMember("REXML").getMember("Document").getAnInstantiation()
+  }
+
+  override DataFlow::Node getInput() { result = this.getArgument(0) }
+
+  /** No option for parsing */
+  override predicate externalEntitiesEnabled() { none() }
+}
+
+/** Execution of a XPath statement. */
+private class RexmlXPathExecution extends XPathExecution::Range, DataFlow::CallNode {
+  RexmlXPathExecution() {
+    this =
+      [API::getTopLevelMember("REXML").getMember("XPath"), API::getTopLevelMember("XPath")]
+          .getAMethodCall(["each", "first", "match"])
+  }
+
+  override DataFlow::Node getXPath() { result = this.getArgument(1) }
+}
+
+/**
+ * A call to `ActiveSupport::XmlMini.parse` considered as an `XmlParserCall`.
+ */
+private class XmlMiniXmlParserCall extends XmlParserCall::Range, DataFlow::CallNode {
+  XmlMiniXmlParserCall() {
+    this = API::getTopLevelMember("ActiveSupport").getMember("XmlMini").getAMethodCall("parse")
+  }
+
+  override DataFlow::Node getInput() { result = this.getArgument(0) }
+
+  override predicate externalEntitiesEnabled() { xmlMiniEntitySubstitutionEnabled() }
+}
+
+/**
+ * A call to `Hash.from_xml` or `Hash.from_trusted_xml` considered as an
+ * `XmlParserCall`.
+ */
+private class HashFromXmlXmlParserCall extends XmlParserCall::Range, DataFlow::CallNode {
+  HashFromXmlXmlParserCall() {
+    this = API::getTopLevelMember("Hash").getAMethodCall(["from_xml", "from_trusted_xml"])
+  }
+
+  override DataFlow::Node getInput() { result = this.getArgument(0) }
+
+  override predicate externalEntitiesEnabled() { xmlMiniEntitySubstitutionEnabled() }
 }
 
 private newtype TFeature =

@@ -1,11 +1,11 @@
-using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Semmle.Extraction.CSharp.Populators;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Semmle.Extraction.CSharp.Populators;
 
 namespace Semmle.Extraction.CSharp.Entities
 {
@@ -54,12 +54,13 @@ namespace Semmle.Extraction.CSharp.Entities
             var block = Block;
             var expr = ExpressionBody;
 
+            Context.PopulateLater(() => ExtractInitializers(trapFile));
+
             if (block is not null || expr is not null)
             {
                 Context.PopulateLater(
                    () =>
                    {
-                       ExtractInitializers(trapFile);
                        if (block is not null)
                            Statements.Block.Create(Context, block, this, 0);
                        else
@@ -83,10 +84,12 @@ namespace Semmle.Extraction.CSharp.Entities
             }
         }
 
+        protected virtual MethodKind ExplicitlyImplementsKind => MethodKind.Ordinary;
+
         public void Overrides(TextWriter trapFile)
         {
             foreach (var explicitInterface in Symbol.ExplicitInterfaceImplementations
-                .Where(sym => sym.MethodKind == MethodKind.Ordinary)
+                .Where(sym => sym.MethodKind == ExplicitlyImplementsKind)
                 .Select(impl => Type.Create(Context, impl.ContainingType)))
             {
                 trapFile.explicitly_implements(this, explicitInterface.TypeRef);
@@ -230,7 +233,7 @@ namespace Semmle.Extraction.CSharp.Entities
         /// <param name="cx"></param>
         /// <param name="methodDecl"></param>
         /// <returns></returns>
-        [return: NotNullIfNotNull("methodDecl")]
+        [return: NotNullIfNotNull(nameof(methodDecl))]
         public static Method? Create(Context cx, IMethodSymbol? methodDecl)
         {
             if (methodDecl is null)
@@ -241,7 +244,12 @@ namespace Semmle.Extraction.CSharp.Entities
             if (methodKind == MethodKind.ExplicitInterfaceImplementation)
             {
                 // Retrieve the original method kind
-                methodKind = methodDecl.ExplicitInterfaceImplementations.Select(m => m.MethodKind).FirstOrDefault();
+                if (methodDecl.ExplicitInterfaceImplementations.IsEmpty)
+                {
+                    throw new InternalError(methodDecl, "Couldn't get the original method kind for an explicit interface implementation");
+                }
+
+                methodKind = methodDecl.ExplicitInterfaceImplementations.Select(m => m.MethodKind).First();
             }
 
             switch (methodKind)
@@ -352,7 +360,6 @@ namespace Semmle.Extraction.CSharp.Entities
             PopulateParameters();
             PopulateMethodBody(trapFile);
             PopulateGenerics(trapFile);
-            PopulateMetadataHandle(trapFile);
             PopulateNullability(trapFile, Symbol.GetAnnotatedReturnType());
         }
 

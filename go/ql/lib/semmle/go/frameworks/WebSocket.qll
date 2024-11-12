@@ -8,13 +8,9 @@ import go
  * Extend this class to refine existing API models. If you want to model new APIs,
  * extend `WebSocketRequestCall::Range` instead.
  */
-class WebSocketRequestCall extends DataFlow::CallNode {
-  WebSocketRequestCall::Range self;
-
-  WebSocketRequestCall() { this = self }
-
+class WebSocketRequestCall extends DataFlow::CallNode instanceof WebSocketRequestCall::Range {
   /** Gets the URL of the request. */
-  DataFlow::Node getRequestUrl() { result = self.getRequestUrl() }
+  DataFlow::Node getRequestUrl() { result = super.getRequestUrl() }
 }
 
 /** Provides classes for working with WebSocket request functions. */
@@ -129,9 +125,11 @@ module WebSocketRequestCall {
 }
 
 /**
+ * DEPRECATED: Use `WebSocketReader` or `RemoteFlowSource::Range` instead.
+ *
  * A message written to a WebSocket, considered as a flow sink for reflected XSS.
  */
-class WebSocketReaderAsSource extends UntrustedFlowSource::Range {
+deprecated class WebSocketReaderAsSource extends RemoteFlowSource::Range {
   WebSocketReaderAsSource() {
     exists(WebSocketReader r | this = r.getAnOutput().getNode(r.getACall()))
   }
@@ -143,13 +141,9 @@ class WebSocketReaderAsSource extends UntrustedFlowSource::Range {
  * Extend this class to refine existing API models. If you want to model new APIs,
  * extend `WebSocketReader::Range` instead.
  */
-class WebSocketReader extends Function {
-  WebSocketReader::Range self;
-
-  WebSocketReader() { this = self }
-
+class WebSocketReader extends Function instanceof WebSocketReader::Range {
   /** Gets an output of this function containing data that is read from a WebSocket connection. */
-  FunctionOutput getAnOutput() { result = self.getAnOutput() }
+  FunctionOutput getAnOutput() { result = super.getAnOutput() }
 }
 
 /** Provides classes for working with messages read from a WebSocket. */

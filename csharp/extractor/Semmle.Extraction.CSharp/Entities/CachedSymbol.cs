@@ -1,11 +1,10 @@
-using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
-using Semmle.Extraction.Entities;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace Semmle.Extraction.CSharp.Entities
 {
@@ -54,7 +53,21 @@ namespace Semmle.Extraction.CSharp.Entities
                     trapFile.type_annotation(this, Kinds.TypeAnnotation.Ref);
                     break;
                 case RefKind.RefReadOnly:
+                case RefKind.RefReadOnlyParameter:
                     trapFile.type_annotation(this, Kinds.TypeAnnotation.ReadonlyRef);
+                    break;
+            }
+        }
+
+        protected void PopulateScopedKind(TextWriter trapFile, ScopedKind kind)
+        {
+            switch (kind)
+            {
+                case ScopedKind.ScopedRef:
+                    trapFile.scoped_annotation(this, Kinds.ScopedAnnotation.ScopedRef);
+                    break;
+                case ScopedKind.ScopedValue:
+                    trapFile.scoped_annotation(this, Kinds.ScopedAnnotation.ScopedValue);
                     break;
             }
         }
@@ -66,15 +79,15 @@ namespace Semmle.Extraction.CSharp.Entities
         }
 
         /// <summary>
-        /// The location which is stored in the database and is used when highlighing source code.
+        /// The location which is stored in the database and is used when highlighting source code.
         /// It's generally short, e.g. a method name.
         /// </summary>
-        public override Microsoft.CodeAnalysis.Location? ReportingLocation => Symbol.Locations.FirstOrDefault();
+        public override Microsoft.CodeAnalysis.Location? ReportingLocation => Symbol.Locations.BestOrDefault();
 
         /// <summary>
         /// The full text span of the entity, e.g. for binding comments.
         /// </summary>
-        public virtual Microsoft.CodeAnalysis.Location? FullLocation => Symbol.Locations.FirstOrDefault();
+        public virtual Microsoft.CodeAnalysis.Location? FullLocation => Symbol.Locations.BestOrDefault();
 
         public virtual IEnumerable<Extraction.Entities.Location> Locations
         {
@@ -85,7 +98,7 @@ namespace Semmle.Extraction.CSharp.Entities
                 {
                     // Some built in operators lack locations, so loc is null.
                     yield return Context.CreateLocation(ReportingLocation);
-                    if (!Context.Extractor.Mode.HasFlag(ExtractorMode.Standalone) && loc.Kind == LocationKind.SourceFile)
+                    if (loc.Kind == LocationKind.SourceFile)
                         yield return Assembly.CreateOutputAssembly(Context);
                 }
             }
@@ -131,50 +144,5 @@ namespace Semmle.Extraction.CSharp.Entities
         public override bool NeedsPopulation => Context.Defines(Symbol);
 
         public Extraction.Entities.Location Location => Context.CreateLocation(ReportingLocation);
-
-        protected void PopulateMetadataHandle(TextWriter trapFile)
-        {
-            var handle = MetadataHandle;
-
-            if (handle.HasValue)
-                trapFile.metadata_handle(this, Location, MetadataTokens.GetToken(handle.Value));
-        }
-
-        private static System.Reflection.PropertyInfo? GetPropertyInfo(object o, string name)
-        {
-            return o.GetType().GetProperty(name, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.GetProperty);
-        }
-
-        public Handle? MetadataHandle
-        {
-            get
-            {
-                var handleProp = GetPropertyInfo(Symbol, "Handle");
-                object handleObj = Symbol;
-
-                if (handleProp is null)
-                {
-                    var underlyingSymbolProp = GetPropertyInfo(Symbol, "UnderlyingSymbol");
-                    if (underlyingSymbolProp?.GetValue(Symbol) is object underlying)
-                    {
-                        handleProp = GetPropertyInfo(underlying, "Handle");
-                        handleObj = underlying;
-                    }
-                }
-
-                if (handleProp is not null)
-                {
-                    switch (handleProp.GetValue(handleObj))
-                    {
-                        case MethodDefinitionHandle md: return md;
-                        case TypeDefinitionHandle td: return td;
-                        case PropertyDefinitionHandle pd: return pd;
-                        case FieldDefinitionHandle fd: return fd;
-                    }
-                }
-
-                return null;
-            }
-        }
     }
 }

@@ -1,10 +1,10 @@
+using System.IO;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Semmle.Util;
 using Semmle.Extraction.CSharp.Entities;
 using Semmle.Extraction.CSharp.Entities.Expressions;
 using Semmle.Extraction.Entities;
 using Semmle.Extraction.Kinds;
-using Semmle.Util;
-using System.IO;
 
 namespace Semmle.Extraction.CSharp
 {
@@ -68,6 +68,12 @@ namespace Semmle.Extraction.CSharp
         internal static void compilation_args(this TextWriter trapFile, Compilation compilation, int index, string arg) =>
             trapFile.WriteTuple("compilation_args", compilation, index, arg);
 
+        internal static void compilation_expanded_args(this TextWriter trapFile, Compilation compilation, int index, string arg) =>
+            trapFile.WriteTuple("compilation_expanded_args", compilation, index, arg);
+
+        internal static void compilation_info(this TextWriter trapFile, Compilation compilation, string infoKey, string infoValue) =>
+            trapFile.WriteTuple("compilation_info", compilation, infoKey, infoValue);
+
         internal static void compilation_compiling_files(this TextWriter trapFile, Compilation compilation, int index, Extraction.Entities.File file) =>
             trapFile.WriteTuple("compilation_compiling_files", compilation, index, file);
 
@@ -116,10 +122,10 @@ namespace Semmle.Extraction.CSharp
         internal static void destructors(this TextWriter trapFile, Destructor destructor, string name, Type containingType, Destructor original) =>
             trapFile.WriteTuple("destructors", destructor, name, containingType, original);
 
-        internal static void diagnostic_for(this TextWriter trapFile, Diagnostic diag, Compilation comp, int fileNo, int index) =>
+        internal static void diagnostic_for(this TextWriter trapFile, CompilerDiagnostic diag, Compilation comp, int fileNo, int index) =>
             trapFile.WriteTuple("diagnostic_for", diag, comp, fileNo, index);
 
-        internal static void diagnostics(this TextWriter trapFile, Diagnostic diag, int severity, string errorTag, string errorMessage, string fullErrorMessage, Location location) =>
+        internal static void diagnostics(this TextWriter trapFile, CompilerDiagnostic diag, int severity, string errorTag, string errorMessage, string fullErrorMessage, Location location) =>
             trapFile.WriteTuple("diagnostics", diag, severity, errorTag, errorMessage, fullErrorMessage, location);
 
         internal static void dynamic_member_name(this TextWriter trapFile, Expression e, string name) =>
@@ -158,9 +164,6 @@ namespace Semmle.Extraction.CSharp
         internal static void expr_call(this TextWriter trapFile, Expression expr, Method target) =>
             trapFile.WriteTuple("expr_call", expr, target);
 
-        internal static void expr_compiler_generated(this TextWriter trapFile, Expression expr) =>
-            trapFile.WriteTuple("expr_compiler_generated", expr);
-
         internal static void expr_flowstate(this TextWriter trapFile, Expression expr, int flowState) =>
             trapFile.WriteTuple("expr_flowstate", expr, flowState);
 
@@ -191,8 +194,8 @@ namespace Semmle.Extraction.CSharp
         internal static void field_location(this TextWriter trapFile, Field field, Location location) =>
             trapFile.WriteTuple("field_location", field, location);
 
-        internal static void fields(this TextWriter trapFile, Field field, int @const, string name, Type declaringType, Type fieldType, Field unboundKey) =>
-            trapFile.WriteTuple("fields", field, @const, name, declaringType, fieldType, unboundKey);
+        internal static void fields(this TextWriter trapFile, Field field, VariableKind kind, string name, Type declaringType, Type fieldType, Field unboundKey) =>
+            trapFile.WriteTuple("fields", field, (int)kind, name, declaringType, fieldType, unboundKey);
 
         internal static void general_type_parameter_constraints(this TextWriter trapFile, TypeParameterConstraints constraints, int hasKind) =>
             trapFile.WriteTuple("general_type_parameter_constraints", constraints, hasKind);
@@ -227,11 +230,8 @@ namespace Semmle.Extraction.CSharp
         internal static void localvar_location(this TextWriter trapFile, LocalVariable var, Location location) =>
             trapFile.WriteTuple("localvar_location", var, location);
 
-        internal static void localvars(this TextWriter trapFile, LocalVariable key, int @const, string name, int @var, Type type, Expression expr) =>
-            trapFile.WriteTuple("localvars", key, @const, name, @var, type, expr);
-
-        public static void metadata_handle(this TextWriter trapFile, IEntity entity, Location assembly, int handleValue) =>
-            trapFile.WriteTuple("metadata_handle", entity, assembly, handleValue);
+        internal static void localvars(this TextWriter trapFile, LocalVariable key, VariableKind kind, string name, int @var, Type type, Expression expr) =>
+            trapFile.WriteTuple("localvars", key, (int)kind, name, @var, type, expr);
 
         internal static void method_location(this TextWriter trapFile, Method method, Location location) =>
             trapFile.WriteTuple("method_location", method, location);
@@ -462,5 +462,8 @@ namespace Semmle.Extraction.CSharp
 
         internal static void file_extraction_mode(this System.IO.TextWriter trapFile, Entities.File file, ExtractorMode mode) =>
             trapFile.WriteTuple("file_extraction_mode", file, mode);
+
+        internal static void scoped_annotation(this TextWriter trapFile, IEntity element, ScopedAnnotation @scoped) =>
+            trapFile.WriteTuple("scoped_annotation", element, (int)@scoped);
     }
 }

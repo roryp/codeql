@@ -1,11 +1,9 @@
 /** Provides classes representing basic blocks. */
 
-private import codeql.Locations
 private import codeql.ruby.AST
 private import codeql.ruby.ast.internal.AST
 private import codeql.ruby.ast.internal.TreeSitter
 private import codeql.ruby.controlflow.ControlFlowGraph
-private import internal.ControlFlowGraphImpl
 private import CfgNodes
 private import SuccessorTypes
 
@@ -253,6 +251,30 @@ private module Cached {
     cfn.isJoin()
     or
     cfn.getAPredecessor().isBranch()
+    or
+    /*
+     * In cases such as
+     *
+     * ```rb
+     * if x or y
+     *     foo
+     * else
+     *     bar
+     * ```
+     *
+     * we have a CFG that looks like
+     *
+     * x --false--> [false] x or y --false--> bar
+     * \                    |
+     *  --true--> y --false--
+     *            \
+     *             --true--> [true] x or y --true--> foo
+     *
+     * and we want to ensure that both `foo` and `bar` start a new basic block,
+     * in order to get a `ConditionalBlock` out of the disjunction.
+     */
+
+    exists(cfn.getAPredecessor(any(SuccessorTypes::ConditionalSuccessor s)))
   }
 
   /**
@@ -311,13 +333,13 @@ private module Cached {
   }
 
   cached
-  predicate immediatelyControls(ConditionBlock cb, BasicBlock succ, BooleanSuccessor s) {
+  predicate immediatelyControls(ConditionBlock cb, BasicBlock succ, ConditionalSuccessor s) {
     succ = cb.getASuccessor(s) and
     forall(BasicBlock pred | pred = succ.getAPredecessor() and pred != cb | succ.dominates(pred))
   }
 
   cached
-  predicate controls(ConditionBlock cb, BasicBlock controlled, BooleanSuccessor s) {
+  predicate controls(ConditionBlock cb, BasicBlock controlled, ConditionalSuccessor s) {
     exists(BasicBlock succ | cb.immediatelyControls(succ, s) | succ.dominates(controlled))
   }
 }
@@ -367,7 +389,7 @@ private module JoinBlockPredecessors {
   private predicate idOf(Ruby::AstNode x, int y) = equivalenceRelation(id/2)(x, y)
 
   int getId(JoinBlockPredecessor jbp) {
-    idOf(toGeneratedInclSynth(jbp.getFirstNode().(AstCfgNode).getNode()), result)
+    idOf(toGeneratedInclSynth(jbp.getFirstNode().(AstCfgNode).getAstNode()), result)
     or
     idOf(toGeneratedInclSynth(jbp.(EntryBasicBlock).getScope()), result)
   }
@@ -406,7 +428,7 @@ class ConditionBlock extends BasicBlock {
    * successor of this block, and `succ` can only be reached from
    * the callable entry point by going via the `s` edge out of this basic block.
    */
-  predicate immediatelyControls(BasicBlock succ, BooleanSuccessor s) {
+  predicate immediatelyControls(BasicBlock succ, ConditionalSuccessor s) {
     immediatelyControls(this, succ, s)
   }
 
@@ -415,5 +437,7 @@ class ConditionBlock extends BasicBlock {
    * conditional value `s`. That is, `controlled` can only be reached from
    * the callable entry point by going via the `s` edge out of this basic block.
    */
-  predicate controls(BasicBlock controlled, BooleanSuccessor s) { controls(this, controlled, s) }
+  predicate controls(BasicBlock controlled, ConditionalSuccessor s) {
+    controls(this, controlled, s)
+  }
 }

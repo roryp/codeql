@@ -16,11 +16,11 @@ import Clones
  * An assignment that may be a self assignment.
  */
 class PotentialSelfAssignment extends HashRoot, AssignStmt {
-  PotentialSelfAssignment() { getLhs().getKind() = getRhs().getKind() }
+  PotentialSelfAssignment() { this.getLhs().getKind() = this.getRhs().getKind() }
 }
 
 from PotentialSelfAssignment assgn, HashableNode rhs
 where
   rhs = assgn.getRhs() and
   rhs.hash() = assgn.getLhs().(HashableNode).hash()
-select assgn, "This statement assigns $@ to itself.", rhs, "an expression"
+select assgn, "This statement assigns an $@ to itself.", rhs, "expression"

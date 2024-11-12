@@ -2,7 +2,7 @@ private import python
 private import semmle.python.dataflow.new.DataFlow
 private import experimental.semmle.python.Concepts
 private import semmle.python.ApiGraphs
-private import semmle.python.dataflow.new.TaintTracking2
+private import semmle.python.dataflow.new.TaintTracking
 
 module SmtpLib {
   /** Gets a reference to `smtplib.SMTP_SSL` */
@@ -23,7 +23,8 @@ module SmtpLib {
 
   private DataFlow::CallCfgNode mimeText(string mimetype) {
     result = smtpMimeTextInstance().getACall() and
-    [result.getArg(1), result.getArgByName("_subtype")].asExpr().(StrConst).getText() = mimetype
+    [result.getArg(1), result.getArgByName("_subtype")].asExpr().(StringLiteral).getText() =
+      mimetype
   }
 
   /**
@@ -31,15 +32,15 @@ module SmtpLib {
    * argument. Used because of the impossibility to get local source nodes from `_subparts`'
    * `(List|Tuple)` elements.
    */
-  private class SmtpMessageConfig extends TaintTracking2::Configuration {
-    SmtpMessageConfig() { this = "SMTPMessageConfig" }
+  private module SmtpMessageConfig implements DataFlow::ConfigSig {
+    predicate isSource(DataFlow::Node source) { source = mimeText(_) }
 
-    override predicate isSource(DataFlow::Node source) { source = mimeText(_) }
-
-    override predicate isSink(DataFlow::Node sink) {
+    predicate isSink(DataFlow::Node sink) {
       sink = smtpMimeMultipartInstance().getACall().getArgByName("_subparts")
     }
   }
+
+  module SmtpMessageFlow = TaintTracking::Global<SmtpMessageConfig>;
 
   /**
    * Using the `MimeText` call retrieves the content argument whose type argument equals `mimetype`.
@@ -87,8 +88,7 @@ module SmtpLib {
         sink =
           [sendCall.getArg(2), sendCall.getArg(2).(DataFlow::MethodCallNode).getObject()]
               .getALocalSource() and
-        any(SmtpMessageConfig a)
-            .hasFlow(source, sink.(DataFlow::CallCfgNode).getArgByName("_subparts"))
+        SmtpMessageFlow::flow(source, sink.(DataFlow::CallCfgNode).getArgByName("_subparts"))
         or
         // via .attach()
         sink = smtpMimeMultipartInstance().getReturn().getMember("attach").getACall() and
@@ -98,33 +98,6 @@ module SmtpLib {
         source.(DataFlow::CallCfgNode).flowsTo(sink.(DataFlow::CallCfgNode).getArg(0))
       ) and
       result = source.(DataFlow::CallCfgNode).getArg(0)
-    )
-  }
-
-  /**
-   * Gets a message subscript write by correlating subscript's object local source with
-   * `smtp`'s `sendmail` call 3rd argument's local source.
-   *
-   * Given the following example with `getSMTPSubscriptByIndex(any(SmtpLibSendMail s), "Subject")`:
-   *
-   * ```py
-   * message = MIMEMultipart("alternative")
-   * message["Subject"] = "multipart test"
-   * server.sendmail(sender_email, receiver_email, message.as_string())
-   * ```
-   *
-   * * `def` would be `message["Subject"]` (`DefinitionNode`)
-   * * `sub` would be `message["Subject"]` (`Subscript`)
-   * * `result` would be `"multipart test"`
-   */
-  private DataFlow::Node getSmtpSubscriptByIndex(DataFlow::CallCfgNode sendCall, string index) {
-    exists(DefinitionNode def, Subscript sub |
-      sub = def.getNode() and
-      DataFlow::exprNode(sub.getObject()).getALocalSource() =
-        [sendCall.getArg(2), sendCall.getArg(2).(DataFlow::MethodCallNode).getObject()]
-            .getALocalSource() and
-      sub.getIndex().(StrConst).getText() = index and
-      result.asCfgNode() = def.getValue()
     )
   }
 
@@ -153,7 +126,7 @@ module SmtpLib {
    * * `getFrom()`'s result would be `sender_email`.
    * * `getSubject()`'s result would be `"multipart test"`.
    */
-  private class SmtpLibSendMail extends DataFlow::CallCfgNode, EmailSender::Range {
+  private class SmtpLibSendMail extends API::CallNode, EmailSender::Range {
     SmtpLibSendMail() {
       this = smtpConnectionInstance().getReturn().getMember("sendmail").getACall()
     }
@@ -163,15 +136,24 @@ module SmtpLib {
     override DataFlow::Node getHtmlBody() { result = getSmtpMessage(this, "html") }
 
     override DataFlow::Node getTo() {
-      result in [this.getArg(1), getSmtpSubscriptByIndex(this, "To")]
+      result = this.getParameter(1, "to_addrs").asSink()
+      or
+      result = this.getMsg().getSubscript("To").asSink()
     }
 
     override DataFlow::Node getFrom() {
-      result in [this.getArg(0), getSmtpSubscriptByIndex(this, "From")]
+      result = this.getParameter(0, "from_addr").asSink()
+      or
+      result = this.getMsg().getSubscript("From").asSink()
     }
 
-    override DataFlow::Node getSubject() {
-      result in [this.getArg(2), getSmtpSubscriptByIndex(this, "Subject")]
+    override DataFlow::Node getSubject() { result = this.getMsg().getSubscript("Subject").asSink() }
+
+    private API::Node getMsg() {
+      result.getAValueReachableFromSource() = this.getParameter(2, "msg").asSink()
+      or
+      result.getMember("as_string").getReturn().getAValueReachableFromSource() =
+        this.getParameter(2, "msg").asSink()
     }
   }
 }

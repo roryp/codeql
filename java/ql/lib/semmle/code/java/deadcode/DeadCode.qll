@@ -3,6 +3,7 @@ import semmle.code.java.deadcode.DeadEnumConstant
 import semmle.code.java.deadcode.DeadCodeCustomizations
 import semmle.code.java.deadcode.DeadField
 import semmle.code.java.deadcode.EntryPoints
+private import semmle.code.java.frameworks.kotlin.Serialization
 
 /**
  * Holds if the given callable has any liveness causes.
@@ -139,7 +140,7 @@ class NamespaceClass extends RefType {
  * This represents the set of classes and interfaces for which we will determine liveness. Each
  * `SourceClassOrInterfacce` will either be a `LiveClass` or `DeadClass`.
  */
-library class SourceClassOrInterface extends ClassOrInterface {
+class SourceClassOrInterface extends ClassOrInterface {
   SourceClassOrInterface() { this.fromSource() }
 }
 
@@ -172,9 +173,9 @@ class LiveClass extends SourceClassOrInterface {
     exists(NestedType r | r.getEnclosingType() = this | r instanceof LiveClass)
     or
     // An annotation on the class is reflectively accessed.
-    exists(ReflectiveAnnotationAccess reflectiveAnnotationAccess |
-      this = reflectiveAnnotationAccess.getInferredClassType() and
-      isLive(reflectiveAnnotationAccess.getEnclosingCallable())
+    exists(ReflectiveGetAnnotationCall reflectiveAnnotationCall |
+      this = reflectiveAnnotationCall.getInferredClassType() and
+      isLive(reflectiveAnnotationCall.getEnclosingCallable())
     )
     or
     this instanceof AnonymousClass
@@ -273,14 +274,19 @@ class DeadMethod extends Callable {
 
 class RootdefCallable extends Callable {
   RootdefCallable() {
-    this.fromSource() and
+    this.getFile().isJavaSourceFile() and
     not this.(Method).overridesOrInstantiates(_)
   }
 
   Parameter unusedParameter() {
     exists(int i | result = this.getParameter(i) |
       not exists(result.getAnAccess()) and
-      not overrideAccess(this, i)
+      not overrideAccess(this, i) and
+      // Do not report unused parameters on extension parameters that are (companion) objects.
+      not (
+        result.isExtensionParameter() and
+        (result.getType() instanceof CompanionObject or result.getType() instanceof ClassObject)
+      )
     )
   }
 
@@ -304,6 +310,12 @@ class RootdefCallable extends Callable {
     this.getAnAnnotation() instanceof OverrideAnnotation
     or
     this.hasModifier("override")
+    or
+    // Exclude generated callables, such as `...$default` ones extracted from Kotlin code.
+    this.isCompilerGenerated()
+    or
+    // Exclude Kotlin serialization constructors.
+    this instanceof SerializationConstructor
   }
 }
 

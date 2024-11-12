@@ -6,14 +6,15 @@
  * @problem.severity error
  * @id go/ldap-injection
  * @tags security
+ *       experimental
  *       external/cwe/cwe-90
  */
 
 import go
 import LDAPInjection
-import DataFlow::PathGraph
+import LdapInjectionFlow::PathGraph
 
-from LdapInjectionConfiguration config, DataFlow::PathNode source, DataFlow::PathNode sink
-where config.hasFlowPath(source, sink)
-select sink.getNode(), source, sink, "LDAP query parameter is derived from $@.", source.getNode(),
-  "a user-provided value"
+from LdapInjectionFlow::PathNode source, LdapInjectionFlow::PathNode sink
+where LdapInjectionFlow::flowPath(source, sink)
+select sink.getNode(), source, sink, "LDAP query parameter depends on a $@.", source.getNode(),
+  "user-provided value"

@@ -1,4 +1,6 @@
 /**
+ * DEPRECATED: Use `Global` and `GlobalWithState` instead.
+ *
  * Provides an implementation of global (interprocedural) taint tracking.
  * This file re-exports the local (intraprocedural) taint-tracking analysis
  * from `TaintTrackingParameter::Public` and adds a global analysis, mainly
@@ -12,6 +14,8 @@ import TaintTrackingParameter::Public
 private import TaintTrackingParameter::Private
 
 /**
+ * DEPRECATED: Use `Global` and `GlobalWithState` instead.
+ *
  * A configuration of interprocedural taint tracking analysis. This defines
  * sources, sinks, and any other configurable aspect of the analysis. Each
  * use of the taint tracking library must define its own unique extension of
@@ -51,7 +55,7 @@ private import TaintTrackingParameter::Private
  * Instead, the dependency should go to a `TaintTracking2::Configuration` or a
  * `DataFlow2::Configuration`, `DataFlow3::Configuration`, etc.
  */
-abstract class Configuration extends DataFlow::Configuration {
+abstract deprecated class Configuration extends DataFlow::Configuration {
   bindingset[this]
   Configuration() { any() }
 
@@ -61,15 +65,32 @@ abstract class Configuration extends DataFlow::Configuration {
    * The smaller this predicate is, the faster `hasFlow()` will converge.
    */
   // overridden to provide taint-tracking specific qldoc
-  abstract override predicate isSource(DataFlow::Node source);
+  override predicate isSource(DataFlow::Node source) { none() }
 
   /**
-   * Holds if `sink` is a relevant taint sink.
+   * Holds if `source` is a relevant taint source with the given initial
+   * `state`.
    *
    * The smaller this predicate is, the faster `hasFlow()` will converge.
    */
   // overridden to provide taint-tracking specific qldoc
-  abstract override predicate isSink(DataFlow::Node sink);
+  override predicate isSource(DataFlow::Node source, DataFlow::FlowState state) { none() }
+
+  /**
+   * Holds if `sink` is a relevant taint sink
+   *
+   * The smaller this predicate is, the faster `hasFlow()` will converge.
+   */
+  // overridden to provide taint-tracking specific qldoc
+  override predicate isSink(DataFlow::Node sink) { none() }
+
+  /**
+   * Holds if `sink` is a relevant taint sink accepting `state`.
+   *
+   * The smaller this predicate is, the faster `hasFlow()` will converge.
+   */
+  // overridden to provide taint-tracking specific qldoc
+  override predicate isSink(DataFlow::Node sink, DataFlow::FlowState state) { none() }
 
   /** Holds if the node `node` is a taint sanitizer. */
   predicate isSanitizer(DataFlow::Node node) { none() }
@@ -77,6 +98,16 @@ abstract class Configuration extends DataFlow::Configuration {
   final override predicate isBarrier(DataFlow::Node node) {
     this.isSanitizer(node) or
     defaultTaintSanitizer(node)
+  }
+
+  /**
+   * Holds if the node `node` is a taint sanitizer when the flow state is
+   * `state`.
+   */
+  predicate isSanitizer(DataFlow::Node node, DataFlow::FlowState state) { none() }
+
+  final override predicate isBarrier(DataFlow::Node node, DataFlow::FlowState state) {
+    this.isSanitizer(node, state)
   }
 
   /** Holds if taint propagation into `node` is prohibited. */
@@ -90,29 +121,40 @@ abstract class Configuration extends DataFlow::Configuration {
   final override predicate isBarrierOut(DataFlow::Node node) { this.isSanitizerOut(node) }
 
   /**
-   * DEPRECATED: Use `isSanitizer` and `BarrierGuard` module instead.
-   *
-   * Holds if taint propagation through nodes guarded by `guard` is prohibited.
-   */
-  deprecated predicate isSanitizerGuard(DataFlow::BarrierGuard guard) { none() }
-
-  deprecated final override predicate isBarrierGuard(DataFlow::BarrierGuard guard) {
-    this.isSanitizerGuard(guard)
-  }
-
-  /**
-   * Holds if the additional taint propagation step from `node1` to `node2`
-   * must be taken into account in the analysis.
+   * Holds if taint may propagate from `node1` to `node2` in addition to the normal data-flow and taint steps.
    */
   predicate isAdditionalTaintStep(DataFlow::Node node1, DataFlow::Node node2) { none() }
 
   final override predicate isAdditionalFlowStep(DataFlow::Node node1, DataFlow::Node node2) {
     this.isAdditionalTaintStep(node1, node2) or
-    defaultAdditionalTaintStep(node1, node2)
+    defaultAdditionalTaintStep(node1, node2, _)
   }
 
-  override predicate allowImplicitRead(DataFlow::Node node, DataFlow::Content c) {
-    (this.isSink(node) or this.isAdditionalTaintStep(node, _)) and
+  /**
+   * Holds if taint may propagate from `node1` to `node2` in addition to the normal data-flow and taint steps.
+   * This step is only applicable in `state1` and updates the flow state to `state2`.
+   */
+  predicate isAdditionalTaintStep(
+    DataFlow::Node node1, DataFlow::FlowState state1, DataFlow::Node node2,
+    DataFlow::FlowState state2
+  ) {
+    none()
+  }
+
+  final override predicate isAdditionalFlowStep(
+    DataFlow::Node node1, DataFlow::FlowState state1, DataFlow::Node node2,
+    DataFlow::FlowState state2
+  ) {
+    this.isAdditionalTaintStep(node1, state1, node2, state2)
+  }
+
+  override predicate allowImplicitRead(DataFlow::Node node, DataFlow::ContentSet c) {
+    (
+      this.isSink(node) or
+      this.isSink(node, _) or
+      this.isAdditionalTaintStep(node, _) or
+      this.isAdditionalTaintStep(node, _, _, _)
+    ) and
     defaultImplicitTaintRead(node, c)
   }
 

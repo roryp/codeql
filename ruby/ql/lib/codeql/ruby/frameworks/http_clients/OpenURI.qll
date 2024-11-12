@@ -2,13 +2,12 @@
  * Provides modeling for the `OpenURI` library.
  */
 
-private import ruby
+private import codeql.ruby.AST
 private import codeql.ruby.CFG
 private import codeql.ruby.Concepts
 private import codeql.ruby.ApiGraphs
 private import codeql.ruby.DataFlow
 private import codeql.ruby.frameworks.Core
-private import codeql.ruby.dataflow.internal.DataFlowImplForHttpClientLibraries as DataFlowImplForHttpClientLibraries
 
 /**
  * A call that makes an HTTP request using `OpenURI` via `URI.open` or
@@ -19,7 +18,7 @@ private import codeql.ruby.dataflow.internal.DataFlowImplForHttpClientLibraries 
  * URI.parse("http://example.com").open.read
  * ```
  */
-class OpenUriRequest extends HTTP::Client::Request::Range, DataFlow::CallNode {
+class OpenUriRequest extends Http::Client::Request::Range, DataFlow::CallNode {
   API::Node requestNode;
 
   OpenUriRequest() {
@@ -42,11 +41,11 @@ class OpenUriRequest extends HTTP::Client::Request::Range, DataFlow::CallNode {
     result = this.getKeywordArgumentIncludeHashArgument("ssl_verify_mode")
   }
 
+  cached
   override predicate disablesCertificateValidation(
     DataFlow::Node disablingNode, DataFlow::Node argumentOrigin
   ) {
-    any(OpenUriDisablesCertificateValidationConfiguration config)
-        .hasFlow(argumentOrigin, disablingNode) and
+    OpenUriDisablesCertificateValidationFlow::flow(argumentOrigin, disablingNode) and
     disablingNode = this.getCertificateValidationControllingValue()
   }
 
@@ -61,11 +60,9 @@ class OpenUriRequest extends HTTP::Client::Request::Range, DataFlow::CallNode {
  * Kernel.open("http://example.com").read
  * ```
  */
-class OpenUriKernelOpenRequest extends HTTP::Client::Request::Range, DataFlow::CallNode {
-  OpenUriKernelOpenRequest() {
-    this instanceof KernelMethodCall and
-    this.getMethodName() = "open"
-  }
+class OpenUriKernelOpenRequest extends Http::Client::Request::Range, DataFlow::CallNode instanceof KernelMethodCall
+{
+  OpenUriKernelOpenRequest() { this.getMethodName() = "open" }
 
   override DataFlow::Node getAUrlPart() { result = this.getArgument(0) }
 
@@ -91,11 +88,11 @@ class OpenUriKernelOpenRequest extends HTTP::Client::Request::Range, DataFlow::C
     )
   }
 
+  cached
   override predicate disablesCertificateValidation(
     DataFlow::Node disablingNode, DataFlow::Node argumentOrigin
   ) {
-    any(OpenUriDisablesCertificateValidationConfiguration config)
-        .hasFlow(argumentOrigin, disablingNode) and
+    OpenUriDisablesCertificateValidationFlow::flow(argumentOrigin, disablingNode) and
     disablingNode = this.getCertificateValidationControllingValue()
   }
 
@@ -103,18 +100,17 @@ class OpenUriKernelOpenRequest extends HTTP::Client::Request::Range, DataFlow::C
 }
 
 /** A configuration to track values that can disable certificate validation for OpenURI. */
-private class OpenUriDisablesCertificateValidationConfiguration extends DataFlowImplForHttpClientLibraries::Configuration {
-  OpenUriDisablesCertificateValidationConfiguration() {
-    this = "OpenUriDisablesCertificateValidationConfiguration"
-  }
-
-  override predicate isSource(DataFlow::Node source) {
+private module OpenUriDisablesCertificateValidationConfig implements DataFlow::ConfigSig {
+  predicate isSource(DataFlow::Node source) {
     source = API::getTopLevelMember("OpenSSL").getMember("SSL").getMember("VERIFY_NONE").asSource()
   }
 
-  override predicate isSink(DataFlow::Node sink) {
+  predicate isSink(DataFlow::Node sink) {
     sink = any(OpenUriRequest req).getCertificateValidationControllingValue()
     or
     sink = any(OpenUriKernelOpenRequest req).getCertificateValidationControllingValue()
   }
 }
+
+private module OpenUriDisablesCertificateValidationFlow =
+  DataFlow::Global<OpenUriDisablesCertificateValidationConfig>;

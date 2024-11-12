@@ -10,9 +10,7 @@ private import semmle.code.SMAP
 
 /** Holds if element `e` has name `name`. */
 predicate hasName(Element e, string name) {
-  classes(e, name, _, _)
-  or
-  interfaces(e, name, _, _)
+  classes_or_interfaces(e, name, _, _)
   or
   primitives(e, name)
   or
@@ -20,7 +18,7 @@ predicate hasName(Element e, string name) {
   or
   methods(e, name, _, _, _, _)
   or
-  fields(e, name, _, _, _)
+  fields(e, name, _, _)
   or
   packages(e, name)
   or
@@ -36,7 +34,7 @@ predicate hasName(Element e, string name) {
   or
   localvars(e, name, _, _)
   or
-  typeVars(e, name, _, _, _)
+  typeVars(e, name, _, _)
   or
   wildcards(e, name, _)
   or
@@ -216,7 +214,7 @@ private predicate fixedHasLocation(Top l, Location loc, File f) {
     min(Location candidateLoc |
       hasLocation(l, candidateLoc)
     |
-      candidateLoc order by candidateLoc.getFile().toString()
+      candidateLoc order by candidateLoc.getFile().getAbsolutePath()
     ) and
   not hasSourceLocation(l, _, _) and
   locations_default(loc, f, _, _, _, _)

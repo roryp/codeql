@@ -2,12 +2,11 @@
  * Provides modeling for the `Faraday` library.
  */
 
-private import ruby
+private import codeql.ruby.AST
 private import codeql.ruby.CFG
 private import codeql.ruby.Concepts
 private import codeql.ruby.ApiGraphs
 private import codeql.ruby.DataFlow
-private import codeql.ruby.dataflow.internal.DataFlowImplForHttpClientLibraries as DataFlowImplForHttpClientLibraries
 
 /**
  * A call that makes an HTTP request using `Faraday`.
@@ -23,7 +22,7 @@ private import codeql.ruby.dataflow.internal.DataFlowImplForHttpClientLibraries 
  * connection.get("/").body
  * ```
  */
-class FaradayHttpRequest extends HTTP::Client::Request::Range, DataFlow::CallNode {
+class FaradayHttpRequest extends Http::Client::Request::Range, DataFlow::CallNode {
   API::Node requestNode;
   API::Node connectionNode;
   DataFlow::Node connectionUse;
@@ -34,10 +33,13 @@ class FaradayHttpRequest extends HTTP::Client::Request::Range, DataFlow::CallNod
         // one-off requests
         API::getTopLevelMember("Faraday"),
         // connection re-use
-        API::getTopLevelMember("Faraday").getInstance()
+        API::getTopLevelMember("Faraday").getInstance(),
+        // connection re-use with Faraday::Connection.new instantiation
+        API::getTopLevelMember("Faraday").getMember("Connection").getInstance()
       ] and
     requestNode =
-      connectionNode.getReturn(["get", "head", "delete", "post", "put", "patch", "trace"]) and
+      connectionNode
+          .getReturn(["get", "head", "delete", "post", "put", "patch", "trace", "run_request"]) and
     this = requestNode.asSource() and
     connectionUse = connectionNode.asSource()
   }
@@ -71,11 +73,11 @@ class FaradayHttpRequest extends HTTP::Client::Request::Range, DataFlow::CallNod
     )
   }
 
+  cached
   override predicate disablesCertificateValidation(
     DataFlow::Node disablingNode, DataFlow::Node argumentOrigin
   ) {
-    any(FaradayDisablesCertificateValidationConfiguration config)
-        .hasFlow(argumentOrigin, disablingNode) and
+    FaradayDisablesCertificateValidationFlow::flow(argumentOrigin, disablingNode) and
     disablingNode = this.getCertificateValidationControllingValue(_)
   }
 
@@ -83,14 +85,10 @@ class FaradayHttpRequest extends HTTP::Client::Request::Range, DataFlow::CallNod
 }
 
 /** A configuration to track values that can disable certificate validation for Faraday. */
-private class FaradayDisablesCertificateValidationConfiguration extends DataFlowImplForHttpClientLibraries::Configuration {
-  FaradayDisablesCertificateValidationConfiguration() {
-    this = "FaradayDisablesCertificateValidationConfiguration"
-  }
+private module FaradayDisablesCertificateValidationConfig implements DataFlow::StateConfigSig {
+  class FlowState = string;
 
-  override predicate isSource(
-    DataFlow::Node source, DataFlowImplForHttpClientLibraries::FlowState state
-  ) {
+  predicate isSource(DataFlow::Node source, FlowState state) {
     source.asExpr().getExpr().(BooleanLiteral).isFalse() and
     state = "verify"
     or
@@ -98,7 +96,10 @@ private class FaradayDisablesCertificateValidationConfiguration extends DataFlow
     state = "verify_mode"
   }
 
-  override predicate isSink(DataFlow::Node sink, DataFlowImplForHttpClientLibraries::FlowState state) {
+  predicate isSink(DataFlow::Node sink, FlowState state) {
     sink = any(FaradayHttpRequest req).getCertificateValidationControllingValue(state)
   }
 }
+
+private module FaradayDisablesCertificateValidationFlow =
+  DataFlow::GlobalWithState<FaradayDisablesCertificateValidationConfig>;

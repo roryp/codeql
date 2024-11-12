@@ -12,11 +12,7 @@ module NoSql {
    * Extend this class to refine existing API models. If you want to model new APIs,
    * extend `NoSQL::Query::Range` instead.
    */
-  class Query extends DataFlow::Node {
-    Query::Range self;
-
-    Query() { this = self }
-  }
+  class Query extends DataFlow::Node instanceof Query::Range { }
 
   /** Provides classes for working with NoSql queries. */
   module Query {
@@ -27,6 +23,14 @@ module NoSql {
      * extend `NoSQL::Query` instead.
      */
     abstract class Range extends DataFlow::Node { }
+
+    private class DefaultQueryString extends Range {
+      DefaultQueryString() {
+        exists(DataFlow::ArgumentNode arg | sinkNode(arg, "nosql-injection") |
+          this = arg.getACorrespondingSyntacticArgument()
+        )
+      }
+    }
 
     /**
      * Holds if method `name` of struct `Collection` from package
@@ -119,6 +123,3 @@ module NoSql {
     )
   }
 }
-
-/** DEPRECATED: Alias for NoSql */
-deprecated module NoSQL = NoSql;

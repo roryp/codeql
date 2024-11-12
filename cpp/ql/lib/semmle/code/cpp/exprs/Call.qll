@@ -149,6 +149,11 @@ class Call extends Expr, NameQualifiableElement, TCall {
     variableAddressEscapesTreeNonConst(va, this.getQualifier().getFullyConverted()) and
     i = -1
   }
+
+  /** Holds if this expression could be the return value of an implicitly declared function. */
+  predicate mayBeFromImplicitlyDeclaredFunction() {
+    this.getTarget().getADeclarationEntry().isImplicit()
+  }
 }
 
 /**
@@ -494,7 +499,7 @@ class VacuousDestructorCall extends Expr, @vacuous_destructor_call {
  * An initialization of a base class or member variable performed as part
  * of a constructor's explicit initializer list or implicit actions.
  *
- * This is a QL root class for reprenting various types of constructor
+ * This is a QL root class for representing various types of constructor
  * initializations.
  */
 class ConstructorInit extends Expr, @ctorinit {

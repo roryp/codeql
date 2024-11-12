@@ -8,11 +8,7 @@ import go
  * Extend this class to refine existing models of testing frameworks. If you want to model new
  * frameworks, extend `TestCase::Range` instead.
  */
-class TestCase extends AstNode {
-  TestCase::Range self;
-
-  TestCase() { this = self }
-}
+class TestCase extends AstNode instanceof TestCase::Range { }
 
 /** Provides classes for working with test cases. */
 module TestCase {
@@ -27,16 +23,16 @@ module TestCase {
   /** A `go test` style test (including benchmarks and examples). */
   private class GoTestFunction extends Range, FuncDef {
     GoTestFunction() {
-      getName().regexpMatch("Test(?![a-z]).*") and
-      getNumParameter() = 1 and
-      getParameter(0).getType().(PointerType).getBaseType().hasQualifiedName("testing", "T")
+      this.getName().regexpMatch("Test(?![a-z]).*") and
+      this.getNumParameter() = 1 and
+      this.getParameter(0).getType().(PointerType).getBaseType().hasQualifiedName("testing", "T")
       or
-      getName().regexpMatch("Benchmark(?![a-z]).*") and
-      getNumParameter() = 1 and
-      getParameter(0).getType().(PointerType).getBaseType().hasQualifiedName("testing", "B")
+      this.getName().regexpMatch("Benchmark(?![a-z]).*") and
+      this.getNumParameter() = 1 and
+      this.getParameter(0).getType().(PointerType).getBaseType().hasQualifiedName("testing", "B")
       or
-      getName().regexpMatch("Example(?![a-z]).*") and
-      getNumParameter() = 0
+      this.getName().regexpMatch("Example(?![a-z]).*") and
+      this.getNumParameter() = 0
     }
   }
 }
@@ -47,11 +43,7 @@ module TestCase {
  * Extend this class to refine existing models of testing frameworks. If you want to model new
  * frameworks, extend `TestFile::Range` instead.
  */
-class TestFile extends File {
-  TestFile::Range self;
-
-  TestFile() { this = self }
-}
+class TestFile extends File instanceof TestFile::Range { }
 
 /** Provides classes for working with test files. */
 module TestFile {
@@ -94,7 +86,7 @@ module Ginkgo {
 
   /** The Ginkgo `Fail` function, which always panics. */
   private class FailFunction extends Function {
-    FailFunction() { hasQualifiedName(packagePath(), "Fail") }
+    FailFunction() { this.hasQualifiedName(packagePath(), "Fail") }
 
     override predicate mustPanic() { any() }
   }

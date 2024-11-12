@@ -32,13 +32,21 @@ module UnsafeJQueryPlugin {
   abstract class Sanitizer extends DataFlow::Node { }
 
   /**
-   * An argument that may act as a HTML fragment rather than a CSS selector, as a sink for remote unsafe jQuery plugins.
+   * The receiver of a function, seen as a sanitizer.
+   *
+   * Plugins often do `$(this)` to coerce an existing DOM element to a jQuery object.
+   */
+  private class ThisSanitizer extends Sanitizer instanceof DataFlow::ThisNode { }
+
+  /**
+   * An argument that may act as an HTML fragment rather than a CSS selector, as a sink for remote unsafe jQuery plugins.
    */
   class AmbiguousHtmlOrSelectorArgument extends DataFlow::Node,
-    DomBasedXss::JQueryHtmlOrSelectorArgument {
+    DomBasedXss::JQueryHtmlOrSelectorArgument
+  {
     AmbiguousHtmlOrSelectorArgument() {
       // any fixed prefix makes the call unambiguous
-      not exists(getAPrefix())
+      not exists(this.getAPrefix())
     }
   }
 
@@ -83,12 +91,12 @@ module UnsafeJQueryPlugin {
         if method.getAParameter().getName().regexpMatch(optionsPattern)
         then (
           // use the last parameter named something like "options" if it exists ...
-          getName().regexpMatch(optionsPattern) and
+          this.getName().regexpMatch(optionsPattern) and
           this = method.getAParameter()
         ) else (
           // ... otherwise, use the last parameter, unless it looks like a DOM node
           this = method.getLastParameter() and
-          not getName().regexpMatch("(?i)(e(l(em(ent(s)?)?)?)?)")
+          not this.getName().regexpMatch("(?i)(e(l(em(ent(s)?)?)?)?)")
         )
       )
     }
@@ -105,13 +113,13 @@ module UnsafeJQueryPlugin {
   class IsElementSanitizer extends TaintTracking::SanitizerGuardNode, DataFlow::CallNode {
     IsElementSanitizer() {
       // common ad hoc sanitizing calls
-      exists(string name | getCalleeName() = name |
+      exists(string name | this.getCalleeName() = name |
         name = "isElement" or name = "isDocument" or name = "isWindow"
       )
     }
 
     override predicate sanitizes(boolean outcome, Expr e) {
-      outcome = true and e = getArgument(0).asExpr()
+      outcome = true and e = this.getArgument(0).asExpr()
     }
   }
 
@@ -173,16 +181,15 @@ module UnsafeJQueryPlugin {
   }
 
   /**
-   * An argument that may act as a HTML fragment rather than a CSS selector, as a sink for remote unsafe jQuery plugins.
+   * An argument that may act as an HTML fragment rather than a CSS selector, as a sink for remote unsafe jQuery plugins.
    */
-  class AmbiguousHtmlOrSelectorArgumentAsSink extends Sink {
-    AmbiguousHtmlOrSelectorArgumentAsSink() {
-      this instanceof AmbiguousHtmlOrSelectorArgument and not isLikelyIntentionalHtmlSink(this)
-    }
+  class AmbiguousHtmlOrSelectorArgumentAsSink extends Sink instanceof AmbiguousHtmlOrSelectorArgument
+  {
+    AmbiguousHtmlOrSelectorArgumentAsSink() { not isLikelyIntentionalHtmlSink(this) }
   }
 
   /**
-   * A hint that a value is expected to be treated as a HTML fragment later.
+   * A hint that a value is expected to be treated as an HTML fragment later.
    */
   class IntentionalHtmlFragmentHint extends Sanitizer {
     IntentionalHtmlFragmentHint() {
@@ -191,7 +198,7 @@ module UnsafeJQueryPlugin {
   }
 
   /**
-   * Holds if there exists a jQuery plugin that likely expects `sink` to be treated as a HTML fragment.
+   * Holds if there exists a jQuery plugin that likely expects `sink` to be treated as an HTML fragment.
    */
   predicate isLikelyIntentionalHtmlSink(DataFlow::Node sink) {
     exists(
@@ -206,7 +213,7 @@ module UnsafeJQueryPlugin {
   }
 
   /**
-   * Gets a property-write that writes a HTML-like constant string to `prop`.
+   * Gets a property-write that writes an HTML-like constant string to `prop`.
    */
   pragma[noinline]
   private DataFlow::PropWrite getALikelyHtmlWrite(string prop) {

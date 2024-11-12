@@ -21,7 +21,7 @@ private newtype TType =
 private predicate primTypeName(string s) { s = ["int", "float", "string", "boolean", "date"] }
 
 private predicate isActualClass(Class c) {
-  not exists(c.getAliasType()) and
+  (not exists(c.getAliasType()) or c.isFinal()) and
   not exists(c.getUnionMember())
 }
 
@@ -36,6 +36,10 @@ class Type extends TType {
   /**
    * Gets a supertype of this type. This follows the user-visible type hierarchy,
    * and doesn't include internal types like the characteristic and domain types of classes.
+   *
+   * For supertypes that are `final` aliases, this returns the alias itself, and for
+   * types that are `final` aliases, this returns the supertypes of the type that is
+   * being aliased.
    */
   Type getASuperType() { none() }
 
@@ -94,9 +98,23 @@ class ClassType extends Type, TClass {
 
   override Class getDeclaration() { result = decl }
 
-  override Type getASuperType() { result = decl.getASuperType().getResolvedType() }
+  override Type getASuperType() {
+    result = decl.getASuperType().getResolvedType()
+    or
+    exists(ClassType alias |
+      this.isFinalAlias(alias) and
+      result = alias.getASuperType()
+    )
+  }
 
-  Type getAnInstanceofType() { result = decl.getAnInstanceofType().getResolvedType() }
+  Type getAnInstanceofType() {
+    result = decl.getAnInstanceofType().getResolvedType()
+    or
+    exists(ClassType alias |
+      this.isFinalAlias(alias) and
+      result = alias.getAnInstanceofType()
+    )
+  }
 
   override Type getAnInternalSuperType() {
     result.(ClassCharType).getClassType() = this
@@ -109,6 +127,12 @@ class ClassType extends Type, TClass {
     not exists(VarDecl other | other = fieldCandidate(this, name) |
       other.getDeclaringType().getASuperType+() = result.getDeclaringType()
     )
+  }
+
+  /** Holds if this class is a `final` alias of `c`. */
+  predicate isFinalAlias(ClassType c) {
+    decl.isFinal() and
+    decl.getAliasType().getResolvedType() = c
   }
 }
 
@@ -136,23 +160,37 @@ private PredicateOrBuiltin declaredPred(Type ty, string name, int arity) {
   result.getDeclaringType() = ty and
   result.getName() = name and
   result.getArity() = arity
+  or
+  exists(ClassType alias |
+    ty.(ClassType).isFinalAlias(alias) and
+    result = declaredPred(alias, name, arity)
+  )
 }
 
 pragma[nomagic]
-private PredicateOrBuiltin classPredCandidate(Type ty, string name, int arity) {
-  result = declaredPred(ty, name, arity)
+private PredicateOrBuiltin classPredCandidate(Type ty, string name, int arity, boolean isFinal) {
+  result = declaredPred(ty, name, arity) and
+  if ty.(ClassType).getDeclaration().isFinal() then isFinal = true else isFinal = false
   or
   not exists(declaredPred(ty, name, arity)) and
-  result = inherClassPredCandidate(ty, name, arity)
+  result = inherClassPredCandidate(ty, name, arity, isFinal)
 }
 
-private PredicateOrBuiltin inherClassPredCandidate(Type ty, string name, int arity) {
-  result = classPredCandidate(ty.getAnInternalSuperType(), name, arity) and
+private PredicateOrBuiltin classPredCandidate(Type ty, string name, int arity) {
+  result = classPredCandidate(ty, name, arity, _)
+}
+
+private PredicateOrBuiltin inherClassPredCandidate(Type ty, string name, int arity, boolean isFinal) {
+  result = classPredCandidate(ty.getAnInternalSuperType(), name, arity, isFinal) and
   not result.isPrivate()
 }
 
 predicate predOverrides(ClassPredicate sub, ClassPredicate sup) {
-  sup = inherClassPredCandidate(sub.getDeclaringType(), sub.getName(), sub.getArity())
+  sup = inherClassPredCandidate(sub.getDeclaringType(), sub.getName(), sub.getArity(), false)
+}
+
+predicate predShadows(ClassPredicate sub, ClassPredicate sup) {
+  sup = inherClassPredCandidate(sub.getDeclaringType(), sub.getName(), sub.getArity(), true)
 }
 
 private VarDecl declaredField(ClassType ty, string name) {
@@ -289,10 +327,44 @@ predicate resolveTypeExpr(TypeExpr te, Type t) {
   else
     if primTypeName(te.getClassName())
     then t = TPrimitive(te.getClassName())
-    else
-      exists(FileOrModule m, boolean public, string clName | qualifier(te, m, public, clName) |
-        defines(m, clName, t, public)
+    else resolveTypeExpr2(te, t)
+}
+
+pragma[noopt]
+predicate resolveTypeExpr2(TypeExpr te, Type t) {
+  exists(FileOrModule m, boolean public, string clName |
+    qualifier(te, m, public, clName) and
+    defines(m, clName, t, public) and
+    // there can be some cross-talk between modules due to collapsing parameterized modules. This should remove the worst.
+    // require that the Type is contained in the same pack or a dependency.
+    (
+      exists(YAML::QLPack base, YAML::QLPack sup |
+        te.getFile() = base.getAFileInPack() and
+        exists(AstNode decl, File f |
+          decl = t.getDeclaration() and
+          f = decl.getFile() and
+          f = sup.getAFileInPack()
+        ) and
+        (
+          base.getADependency*() = sup
+          or
+          // only interested in blocking language -> language flow, so we include if one of the packs is shared (has no dbscheme).
+          not exists(YAML::QLPack dep | dep = base.getADependency*() | exists(dep.getDBScheme()))
+          or
+          not exists(YAML::QLPack dep | dep = sup.getADependency*() | exists(dep.getDBScheme()))
+        )
       )
+      or
+      // for tests, and other cases where no qlpack exists.
+      not exists(YAML::QLPack base | te.getFile() = base.getAFileInPack())
+      or
+      // e.g. alias for primitives.
+      not exists(t.getDeclaration())
+      or
+      // mocks are fine.
+      exists(AstNode decl | decl = t.getDeclaration() | exists(AstNodes::toMock(decl)))
+    )
+  )
 }
 
 pragma[noinline]
@@ -342,7 +414,8 @@ private predicate defines(FileOrModule m, string name, Type t, boolean public) {
   exists(Class ty | t = ty.getAliasType().getResolvedType() |
     getEnclosingModule(ty) = m and
     ty.getName() = name and
-    public = getPublicBool(ty)
+    public = getPublicBool(ty) and
+    not ty.isFinal()
   )
   or
   exists(Import im |
@@ -356,7 +429,7 @@ private predicate defines(FileOrModule m, string name, Type t, boolean public) {
   exists(Module mod, SignatureExpr param, int i |
     m.asModule() = mod and
     mod.hasParameter(i, name, param) and
-    public = true
+    public = false
   |
     // resolve to the signature class
     t = param.asType().getResolvedType()

@@ -32,13 +32,6 @@ module OpenUrlRedirect {
   abstract class Barrier extends DataFlow::Node { }
 
   /**
-   * DEPRECATED: Use `Barrier` instead.
-   *
-   * A barrier guard for unvalidated URL redirect vulnerabilities.
-   */
-  abstract deprecated class BarrierGuard extends DataFlow::BarrierGuard { }
-
-  /**
    * An additional taint propagation step specific to this query.
    */
   bindingset[this]
@@ -50,13 +43,18 @@ module OpenUrlRedirect {
   }
 
   /**
+   * DEPRECATED: Use `ActiveThreatModelSource` or `Source` instead.
+   */
+  deprecated class UntrustedFlowAsSource = ThreatModelFlowAsSource;
+
+  /**
    * A source of third-party user input, considered as a flow source for URL redirects.
    */
-  class UntrustedFlowAsSource extends Source, UntrustedFlowSource {
-    UntrustedFlowAsSource() {
+  private class ThreatModelFlowAsSource extends Source instanceof ActiveThreatModelSource {
+    ThreatModelFlowAsSource() {
       // exclude some fields and methods of URLs that are generally not attacker-controllable for
       // open redirect exploits
-      not this instanceof HTTP::Redirect::UnexploitableSource
+      not this instanceof Http::Redirect::UnexploitableSource
     }
   }
 
@@ -64,7 +62,7 @@ module OpenUrlRedirect {
    * An HTTP redirect, considered as a sink for `Configuration`.
    */
   class RedirectSink extends Sink, DataFlow::Node {
-    RedirectSink() { this = any(HTTP::Redirect redir).getUrl() }
+    RedirectSink() { this = any(Http::Redirect redir).getUrl() }
   }
 
   /**
@@ -73,8 +71,15 @@ module OpenUrlRedirect {
    */
   class LocationHeaderSink extends Sink, DataFlow::Node {
     LocationHeaderSink() {
-      exists(HTTP::HeaderWrite hw | hw.getHeaderName() = "location" | this = hw.getValue())
+      exists(Http::HeaderWrite hw | hw.getHeaderName() = "location" | this = hw.getValue())
     }
+  }
+
+  bindingset[var, w]
+  pragma[inline_late]
+  private predicate useIsDominated(SsaWithFields var, Write w, DataFlow::ReadNode sanitizedRead) {
+    w.dominatesNode(sanitizedRead.asInstruction()) and
+    sanitizedRead = var.getAUse()
   }
 
   /**
@@ -85,13 +90,10 @@ module OpenUrlRedirect {
    */
   class PathAssignmentBarrier extends Barrier, Read {
     PathAssignmentBarrier() {
-      exists(Write w, Field f, SsaWithFields var |
-        f.getName() = "Path" and
+      exists(Write w, SsaWithFields var |
         hasHostnameSanitizingSubstring(w.getRhs()) and
-        this = var.getAUse()
-      |
-        w.writesField(var.getAUse(), f, _) and
-        w.dominatesNode(insn)
+        w.writesField(var.getAUse(), any(Field f | f.getName() = "Path"), _) and
+        useIsDominated(var, w, this)
       )
     }
   }
@@ -117,9 +119,7 @@ module OpenUrlRedirect {
 }
 
 /** A sink for an open redirect, considered as a sink for safe URL flow. */
-private class SafeUrlSink extends SafeUrlFlow::Sink {
-  SafeUrlSink() { this instanceof OpenUrlRedirect::Sink }
-}
+private class SafeUrlSink extends SafeUrlFlow::Sink instanceof OpenUrlRedirect::Sink { }
 
 /**
  * A read of a field considered unsafe to redirect to, considered as a sanitizer for a safe
@@ -128,7 +128,7 @@ private class SafeUrlSink extends SafeUrlFlow::Sink {
 private class UnsafeFieldReadSanitizer extends SafeUrlFlow::SanitizerEdge {
   UnsafeFieldReadSanitizer() {
     exists(DataFlow::FieldReadNode frn, string name |
-      name = ["User", "RawQuery", "Fragment", "User"] and
+      name = ["User", "RawQuery", "Fragment"] and
       frn.getField().hasQualifiedName("net/url", "URL")
     |
       this = frn.getBase()

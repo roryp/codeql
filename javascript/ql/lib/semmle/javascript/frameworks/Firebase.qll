@@ -195,7 +195,7 @@ module Firebase {
     /**
      * A call to a Firebase method that sets up a route.
      */
-    private class RouteSetup extends HTTP::Servers::StandardRouteSetup, DataFlow::CallNode {
+    private class RouteSetup extends Http::Servers::StandardRouteSetup, DataFlow::CallNode {
       RouteSetup() { this = namespace().getAPropertyRead("https").getAMemberCall("onRequest") }
 
       override DataFlow::SourceNode getARouteHandler() {
@@ -215,8 +215,9 @@ module Firebase {
     /**
      * A function used as a route handler.
      */
-    private class RouteHandler extends Express::RouteHandler, HTTP::Servers::StandardRouteHandler,
-      DataFlow::FunctionNode {
+    private class RouteHandler extends Express::RouteHandler, Http::Servers::StandardRouteHandler,
+      DataFlow::FunctionNode
+    {
       RouteHandler() { this = any(RouteSetup setup).getARouteHandler() }
 
       override DataFlow::ParameterNode getRouteHandlerParameter(string kind) {

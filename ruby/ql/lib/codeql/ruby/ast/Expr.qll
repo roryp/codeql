@@ -11,19 +11,9 @@ private import internal.TreeSitter
  * This is the root QL class for all expressions.
  */
 class Expr extends Stmt, TExpr {
-  /**
-   * DEPRECATED: Use `getConstantValue` instead.
-   *
-   * Gets the textual (constant) value of this expression, if any.
-   */
-  deprecated string getValueText() { result = this.getConstantValue().toString() }
-
   /** Gets the constant value of this expression, if any. */
   ConstantValue getConstantValue() { result = getConstantValueExpr(this) }
 }
-
-/** DEPRECATED: Use `SelfVariableAccess` instead. */
-deprecated class Self = SelfVariableAccess;
 
 /**
  * A sequence of expressions in the right-hand side of an assignment or
@@ -61,7 +51,7 @@ class ArgumentList extends Expr, TArgumentList {
 
 private class LhsExpr_ =
   TVariableAccess or TTokenConstantAccess or TScopeResolutionConstantAccess or TMethodCall or
-      TDestructuredLhsExpr;
+      TDestructuredLhsExpr or TConstantWriteAccessSynth;
 
 /**
  * A "left-hand-side" (LHS) expression. An `LhsExpr` can occur on the left-hand side of
@@ -207,6 +197,7 @@ class BodyStmt extends StmtSequence, TBodyStmt {
     result = unique(Ensure s | toGenerated(s) = getBodyStmtChild(this, _))
   }
 
+  /** Holds if this block has an `ensure` block. */
   final predicate hasEnsure() { exists(this.getEnsure()) }
 
   override AstNode getAChild(string pred) {

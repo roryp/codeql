@@ -2,12 +2,11 @@
  * Provides modeling for the `HTTParty` library.
  */
 
-private import ruby
+private import codeql.ruby.AST
 private import codeql.ruby.CFG
 private import codeql.ruby.Concepts
 private import codeql.ruby.ApiGraphs
 private import codeql.ruby.DataFlow
-private import codeql.ruby.dataflow.internal.DataFlowImplForHttpClientLibraries as DataFlowImplForHttpClientLibraries
 
 /**
  * A call that makes an HTTP request using `HTTParty`.
@@ -24,7 +23,7 @@ private import codeql.ruby.dataflow.internal.DataFlowImplForHttpClientLibraries 
  * MyClass.new("http://example.com")
  * ```
  */
-class HttpartyRequest extends HTTP::Client::Request::Range, DataFlow::CallNode {
+class HttpartyRequest extends Http::Client::Request::Range, DataFlow::CallNode {
   API::Node requestNode;
 
   HttpartyRequest() {
@@ -53,11 +52,11 @@ class HttpartyRequest extends HTTP::Client::Request::Range, DataFlow::CallNode {
     result = this.getKeywordArgumentIncludeHashArgument(["verify", "verify_peer"])
   }
 
+  cached
   override predicate disablesCertificateValidation(
     DataFlow::Node disablingNode, DataFlow::Node argumentOrigin
   ) {
-    any(HttpartyDisablesCertificateValidationConfiguration config)
-        .hasFlow(argumentOrigin, disablingNode) and
+    HttpartyDisablesCertificateValidationFlow::flow(argumentOrigin, disablingNode) and
     disablingNode = this.getCertificateValidationControllingValue()
   }
 
@@ -65,16 +64,13 @@ class HttpartyRequest extends HTTP::Client::Request::Range, DataFlow::CallNode {
 }
 
 /** A configuration to track values that can disable certificate validation for Httparty. */
-private class HttpartyDisablesCertificateValidationConfiguration extends DataFlowImplForHttpClientLibraries::Configuration {
-  HttpartyDisablesCertificateValidationConfiguration() {
-    this = "HttpartyDisablesCertificateValidationConfiguration"
-  }
+private module HttpartyDisablesCertificateValidationConfig implements DataFlow::ConfigSig {
+  predicate isSource(DataFlow::Node source) { source.asExpr().getExpr().(BooleanLiteral).isFalse() }
 
-  override predicate isSource(DataFlow::Node source) {
-    source.asExpr().getExpr().(BooleanLiteral).isFalse()
-  }
-
-  override predicate isSink(DataFlow::Node sink) {
+  predicate isSink(DataFlow::Node sink) {
     sink = any(HttpartyRequest req).getCertificateValidationControllingValue()
   }
 }
+
+private module HttpartyDisablesCertificateValidationFlow =
+  DataFlow::Global<HttpartyDisablesCertificateValidationConfig>;

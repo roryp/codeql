@@ -14,15 +14,14 @@
  */
 
 import python
-import semmle.python.security.regexp.SuperlinearBackTracking
 import semmle.python.security.dataflow.PolynomialReDoSQuery
-import DataFlow::PathGraph
+import PolynomialReDoSFlow::PathGraph
 
 from
-  Configuration config, DataFlow::PathNode source, DataFlow::PathNode sink, Sink sinkNode,
+  PolynomialReDoSFlow::PathNode source, PolynomialReDoSFlow::PathNode sink, Sink sinkNode,
   PolynomialBackTrackingTerm regexp
 where
-  config.hasFlowPath(source, sink) and
+  PolynomialReDoSFlow::flowPath(source, sink) and
   sinkNode = sink.getNode() and
   regexp.getRootTerm() = sinkNode.getRegExp()
 //   not (
@@ -30,6 +29,6 @@ where
 //     regexp.isAtEndLine()
 //   )
 select sinkNode.getHighlight(), source, sink,
-  "This $@ that depends on $@ may run slow on strings " + regexp.getPrefixMessage() +
+  "This $@ that depends on a $@ may run slow on strings " + regexp.getPrefixMessage() +
     "with many repetitions of '" + regexp.getPumpString() + "'.", regexp, "regular expression",
-  source.getNode(), "a user-provided value"
+  source.getNode(), "user-provided value"

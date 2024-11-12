@@ -779,7 +779,7 @@ class AlignofExprOperator extends AlignofOperator {
 /**
  * A C++11 `alignof` expression whose operand is a type name.
  * ```
- * bool proper_alignment = (alingof(T) == alignof(T[0]);
+ * bool proper_alignment = (alignof(T) == alignof(T[0]);
  * ```
  */
 class AlignofTypeOperator extends AlignofOperator {
@@ -789,6 +789,53 @@ class AlignofTypeOperator extends AlignofOperator {
   Type getTypeOperand() { sizeof_bind(underlyingElement(this), unresolveElement(result)) }
 
   override string toString() { result = "alignof(" + this.getTypeOperand().getName() + ")" }
+}
+
+/**
+ * A C++ `__datasizeof` expression (used by some implementations
+ * of the `<type_traits>` header).
+ *
+ * The `__datasizeof` expression behaves identically to `sizeof` except
+ * that the result ignores tail padding.
+ */
+class DatasizeofOperator extends Expr, @datasizeof {
+  override int getPrecedence() { result = 16 }
+}
+
+/**
+ * A C++ `__datasizeof` expression whose operand is an expression.
+ */
+class DatasizeofExprOperator extends DatasizeofOperator {
+  DatasizeofExprOperator() { exists(this.getChild(0)) }
+
+  override string getAPrimaryQlClass() { result = "DatasizeofExprOperator" }
+
+  /** Gets the contained expression. */
+  Expr getExprOperand() { result = this.getChild(0) }
+
+  override string toString() { result = "__datasizeof(<expr>)" }
+
+  override predicate mayBeImpure() { this.getExprOperand().mayBeImpure() }
+
+  override predicate mayBeGloballyImpure() { this.getExprOperand().mayBeGloballyImpure() }
+}
+
+/**
+ * A C++ `__datasizeof` expression whose operand is a type name.
+ */
+class DatasizeofTypeOperator extends DatasizeofOperator {
+  DatasizeofTypeOperator() { sizeof_bind(underlyingElement(this), _) }
+
+  override string getAPrimaryQlClass() { result = "DatasizeofTypeOperator" }
+
+  /** Gets the contained type. */
+  Type getTypeOperand() { sizeof_bind(underlyingElement(this), unresolveElement(result)) }
+
+  override string toString() { result = "__datasizeof(" + this.getTypeOperand().getName() + ")" }
+
+  override predicate mayBeImpure() { none() }
+
+  override predicate mayBeGloballyImpure() { none() }
 }
 
 /**

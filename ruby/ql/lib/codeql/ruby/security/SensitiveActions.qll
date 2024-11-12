@@ -11,6 +11,163 @@
 
 private import codeql.ruby.AST
 private import codeql.ruby.DataFlow
+import codeql.ruby.security.internal.SensitiveDataHeuristics
+private import HeuristicNames
+private import codeql.ruby.CFG
+
+/** An expression that might contain sensitive data. */
+cached
+abstract class SensitiveNode extends DataFlow::Node {
+  /** Gets a human-readable description of this expression for use in alert messages. */
+  cached
+  abstract string describe();
+
+  /** Gets a classification of the kind of sensitive data this expression might contain. */
+  cached
+  abstract SensitiveDataClassification getClassification();
+}
+
+/** A method call that might produce sensitive data. */
+abstract class SensitiveCall extends SensitiveNode { }
+
+private class SensitiveDataMethodNameCall extends SensitiveCall instanceof DataFlow::CallNode {
+  SensitiveDataClassification classification;
+
+  SensitiveDataMethodNameCall() {
+    classification = this.getMethodName().(SensitiveDataMethodName).getClassification()
+  }
+
+  override string describe() { result = "a call to " + super.getMethodName() }
+
+  override SensitiveDataClassification getClassification() { result = classification }
+}
+
+private class SensitiveArgumentCall extends SensitiveCall instanceof DataFlow::CallNode {
+  string argName;
+
+  SensitiveArgumentCall() {
+    // This is particularly to pick up methods with an argument like "password", which may indicate
+    // a lookup.
+    super.getArgument(_).asExpr().getConstantValue().isStringlikeValue(argName) and
+    nameIndicatesSensitiveData(argName)
+  }
+
+  override string describe() { result = "a call to " + super.getMethodName() }
+
+  override SensitiveDataClassification getClassification() {
+    nameIndicatesSensitiveData(argName, result)
+  }
+}
+
+/** An access to a variable or hash value that might contain sensitive data. */
+abstract class SensitiveVariableAccess extends SensitiveNode {
+  string name;
+
+  SensitiveVariableAccess() {
+    this.asExpr().(CfgNodes::ExprNodes::VariableAccessCfgNode).getExpr().getVariable().hasName(name)
+    or
+    this.asExpr()
+        .(CfgNodes::ExprNodes::ElementReferenceCfgNode)
+        .getAnArgument()
+        .getConstantValue()
+        .isStringlikeValue(name)
+  }
+
+  override string describe() { result = "an access to " + name }
+}
+
+/** A write to a location that might contain sensitive data. */
+abstract class SensitiveWrite extends DataFlow::Node { }
+
+/**
+ * Holds if `node` is a write to a variable or hash value named `name`.
+ *
+ * Helper predicate factored out for performance,
+ * to filter `name` as much as possible before using it in
+ * regex matching.
+ */
+pragma[nomagic]
+private predicate writesProperty(DataFlow::Node node, string name) {
+  exists(VariableWriteAccess vwa | vwa.getVariable().getName() = name |
+    node.asExpr().getExpr() = vwa
+  )
+  or
+  // hash value assignment
+  node.(DataFlow::CallNode).getMethodName() = "[]=" and
+  node.(DataFlow::CallNode).getArgument(0).asExpr().getConstantValue().isStringlikeValue(name)
+}
+
+/**
+ * Instance and class variable names are reported with their respective `@`
+ * and `@@` prefixes. This predicate strips these prefixes.
+ */
+bindingset[name]
+private string unprefixedVariableName(string name) { result = name.regexpReplaceAll("^@*", "") }
+
+/** A write to a variable or property that might contain sensitive data. */
+private class BasicSensitiveWrite extends SensitiveWrite {
+  string unprefixedName;
+
+  BasicSensitiveWrite() {
+    exists(string name |
+      /*
+       * PERFORMANCE OPTIMISATION:
+       * `nameIndicatesSensitiveData` performs a `regexpMatch` on `name`.
+       * To carry out a regex match, we must first compute the Cartesian product
+       * of all possible `name`s and regexes, then match.
+       * To keep this product as small as possible,
+       * we want to filter `name` as much as possible before the product.
+       *
+       * Do this by factoring out a helper predicate containing the filtering
+       * logic that restricts `name`. This helper predicate will get picked first
+       * in the join order, since it is the only call here that binds `name`.
+       */
+
+      writesProperty(this, name) and
+      unprefixedName = unprefixedVariableName(name) and
+      nameIndicatesSensitiveData(unprefixedName)
+    )
+  }
+
+  /** Gets a classification of the kind of sensitive data the write might handle. */
+  SensitiveDataClassification getClassification() {
+    nameIndicatesSensitiveData(unprefixedName, result)
+  }
+}
+
+/** An access to a variable or hash value that might contain sensitive data. */
+private class BasicSensitiveVariableAccess extends SensitiveVariableAccess {
+  string unprefixedName;
+
+  BasicSensitiveVariableAccess() {
+    unprefixedName = unprefixedVariableName(name) and
+    nameIndicatesSensitiveData(unprefixedName)
+  }
+
+  override SensitiveDataClassification getClassification() {
+    nameIndicatesSensitiveData(unprefixedName, result)
+  }
+}
+
+/** A method name that suggests it may be sensitive. */
+abstract class SensitiveMethodName extends string {
+  SensitiveMethodName() { this = any(MethodBase m).getName() }
+}
+
+/** A method name that suggests it may produce sensitive data. */
+abstract class SensitiveDataMethodName extends SensitiveMethodName {
+  /** Gets a classification of the kind of sensitive data this method may produce. */
+  abstract SensitiveDataClassification getClassification();
+}
+
+/** A method name that might return sensitive credential data. */
+class CredentialsMethodName extends SensitiveDataMethodName {
+  CredentialsMethodName() { nameIndicatesSensitiveData(this) }
+
+  override SensitiveDataClassification getClassification() {
+    nameIndicatesSensitiveData(this, result)
+  }
+}
 
 /**
  * A sensitive action, such as transfer of sensitive data.

@@ -9,25 +9,28 @@
 private import python
 private import semmle.python.Concepts
 private import semmle.python.ApiGraphs
+private import semmle.python.frameworks.data.ModelsAsData
 
 /**
+ * INTERNAL: Do not use.
+ *
  * Provides models for the `httpx` PyPI package.
  *
  * See
  * - https://pypi.org/project/httpx/
  * - https://www.python-httpx.org/
  */
-private module HttpxModel {
+module HttpxModel {
   /**
    * An outgoing HTTP request, from the `httpx` library.
    *
    * See https://www.python-httpx.org/api/
    */
-  private class RequestCall extends HTTP::Client::Request::Range, API::CallNode {
+  private class RequestCall extends Http::Client::Request::Range, API::CallNode {
     string methodName;
 
     RequestCall() {
-      methodName in [HTTP::httpVerbLower(), "request", "stream"] and
+      methodName in [Http::httpVerbLower(), "request", "stream"] and
       this = API::moduleImport("httpx").getMember(methodName).getACall()
     }
 
@@ -59,16 +62,18 @@ private module HttpxModel {
    */
   module Client {
     /** Get a reference to the `httpx.Client` or `httpx.AsyncClient` class. */
-    private API::Node classRef() {
+    API::Node classRef() {
       result = API::moduleImport("httpx").getMember(["Client", "AsyncClient"])
+      or
+      result = ModelOutput::getATypeNode("httpx.Client~Subclass").getASubclass*()
     }
 
     /** A method call on a Client that sends off a request */
-    private class OutgoingRequestCall extends HTTP::Client::Request::Range, DataFlow::CallCfgNode {
+    private class OutgoingRequestCall extends Http::Client::Request::Range, DataFlow::CallCfgNode {
       string methodName;
 
       OutgoingRequestCall() {
-        methodName in [HTTP::httpVerbLower(), "request", "stream"] and
+        methodName in [Http::httpVerbLower(), "request", "stream"] and
         this = classRef().getReturn().getMember(methodName).getACall()
       }
 

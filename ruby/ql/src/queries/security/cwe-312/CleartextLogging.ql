@@ -13,12 +13,11 @@
  *       external/cwe/cwe-532
  */
 
-import ruby
+import codeql.ruby.AST
 import codeql.ruby.security.CleartextLoggingQuery
-import codeql.ruby.DataFlow
-import DataFlow::PathGraph
+import CleartextLoggingFlow::PathGraph
 
-from Configuration config, DataFlow::PathNode source, DataFlow::PathNode sink
-where config.hasFlowPath(source, sink)
-select sink.getNode(), source, sink, "Sensitive data returned by $@ is logged here.",
+from CleartextLoggingFlow::PathNode source, CleartextLoggingFlow::PathNode sink
+where CleartextLoggingFlow::flowPath(source, sink)
+select sink.getNode(), source, sink, "This logs sensitive data returned by $@ as clear text.",
   source.getNode(), source.getNode().(Source).describe()

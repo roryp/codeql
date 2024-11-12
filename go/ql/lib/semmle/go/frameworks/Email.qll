@@ -9,11 +9,7 @@ import go
  * Extend this class to refine existing API models. If you want to model new APIs,
  * extend `EmailData::Range` instead.
  */
-class EmailData extends DataFlow::Node {
-  EmailData::Range self;
-
-  EmailData() { this = self }
-}
+class EmailData extends DataFlow::Node instanceof EmailData::Range { }
 
 /** Provides classes for working with data that is incorporated into an email. */
 module EmailData {
@@ -48,17 +44,6 @@ module EmailData {
     result = package("github.com/sendgrid/sendgrid-go", "helpers/mail")
   }
 
-  private class NewContent extends TaintTracking::FunctionModel {
-    NewContent() {
-      // func NewContent(contentType string, value string) *Content
-      this.hasQualifiedName(sendgridMail(), "NewContent")
-    }
-
-    override predicate hasTaintFlow(FunctionInput input, FunctionOutput output) {
-      input.isParameter(1) and output.isResult()
-    }
-  }
-
   /** A data-flow node that is written to an email using the sendgrid/sendgrid-go package. */
   private class SendGridEmail extends Range {
     SendGridEmail() {
@@ -71,18 +56,19 @@ module EmailData {
       // func NewV3MailInit(from *Email, subject string, to *Email, content ...*Content) *SGMailV3
       exists(Function newv3MailInit |
         newv3MailInit.hasQualifiedName(sendgridMail(), "NewV3MailInit") and
-        this = newv3MailInit.getACall().getArgument(any(int i | i = 1 or i >= 3))
+        this = newv3MailInit.getACall().getSyntacticArgument(any(int i | i = 1 or i >= 3))
       )
       or
       // func (s *SGMailV3) AddContent(c ...*Content) *SGMailV3
       exists(Method addContent |
         addContent.hasQualifiedName(sendgridMail(), "SGMailV3", "AddContent") and
-        this = addContent.getACall().getAnArgument()
+        this = addContent.getACall().getASyntacticArgument()
       )
     }
   }
 }
 
+// These models are not implemented using Models-as-Data because they represent reverse flow.
 /**
  * A taint model of the `Writer.CreatePart` method from `mime/multipart`.
  *

@@ -295,6 +295,15 @@ private predicate isRequire(DataFlow::Node nd) {
     isCreateRequire(call.getCallee().flow()) and
     nd = call.flow()
   )
+  or
+  // `$.require('underscore');`.
+  // NPM as supported in [XSJS files](https://www.npmjs.com/package/@sap/async-xsjs#npm-packages-support).
+  exists(MethodCallExpr require |
+    nd.getFile().getExtension() = ["xsjs", "xsjslib"] and
+    require.getCalleeName() = "require" and
+    require.getReceiver().(GlobalVarAccess).getName() = "$" and
+    nd = require.getCallee().flow()
+  )
 }
 
 /**
@@ -316,7 +325,7 @@ class Require extends CallExpr, Import {
   override Module resolveImportedPath() {
     moduleInFile(result, this.load(min(int prio | moduleInFile(_, this.load(prio)))))
     or
-    not exists(Module mod | moduleInFile(mod, this.load(_))) and
+    not moduleInFile(_, this.load(_)) and
     result = Import.super.resolveImportedPath()
   }
 

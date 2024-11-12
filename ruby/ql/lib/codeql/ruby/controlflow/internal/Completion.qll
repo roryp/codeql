@@ -8,7 +8,7 @@ private import codeql.ruby.AST
 private import codeql.ruby.ast.internal.AST
 private import codeql.ruby.ast.internal.Control
 private import codeql.ruby.controlflow.ControlFlowGraph
-private import ControlFlowGraphImpl
+private import ControlFlowGraphImpl as CfgImpl
 private import NonReturning
 private import SuccessorTypes
 
@@ -53,7 +53,7 @@ private predicate nestedEnsureCompletion(TCompletion outer, int nestLevel) {
     or
     outer = TExitCompletion()
   ) and
-  nestLevel = any(Trees::BodyStmtTree t).getNestLevel()
+  nestLevel = any(CfgImpl::Trees::BodyStmtTree t).getNestLevel()
 }
 
 pragma[noinline]
@@ -71,24 +71,26 @@ private predicate completionIsValidForStmt(AstNode n, Completion c) {
   c = TReturnCompletion()
 }
 
+private AstNode getARescuableBodyChild() {
+  exists(CfgImpl::Trees::BodyStmtTree bst | result = bst.getBodyChild(_, true) |
+    exists(bst.getARescue())
+    or
+    exists(bst.getEnsure())
+  )
+  or
+  result = getARescuableBodyChild().getAChild()
+}
+
 /**
  * Holds if `c` happens in an exception-aware context, that is, it may be
  * `rescue`d or `ensure`d. In such cases, we assume that the target of `c`
  * may raise an exception (in addition to evaluating normally).
  */
-private predicate mayRaise(Call c) {
-  exists(Trees::BodyStmtTree bst | c = bst.getBodyChild(_, true).getAChild*() |
-    exists(bst.getARescue())
-    or
-    exists(bst.getEnsure())
-  )
-}
+private predicate mayRaise(Call c) { c = getARescuableBodyChild() }
 
 /** A completion of a statement or an expression. */
 abstract class Completion extends TCompletion {
-  private predicate isValidForSpecific(AstNode n) {
-    exists(AstNode other | n = other.getDesugared() and this.isValidForSpecific(other))
-    or
+  private predicate isValidForSpecific0(AstNode n) {
     this = n.(NonReturningCall).getACompletion()
     or
     completionIsValidForStmt(n, this)
@@ -106,12 +108,19 @@ abstract class Completion extends TCompletion {
     or
     n = any(RescueModifierExpr parent).getBody() and
     this = [TSimpleCompletion().(TCompletion), TRaiseCompletion()]
+  }
+
+  private predicate isValidForSpecific(AstNode n) {
+    this.isValidForSpecific0(n)
+    or
+    exists(AstNode other | n = other.getDesugared() and this.isValidForSpecific(other))
     or
     mayRaise(n) and
     (
       this = TRaiseCompletion()
       or
-      this = TSimpleCompletion() and not n instanceof NonReturningCall
+      not any(Completion c).isValidForSpecific0(n) and
+      this = TSimpleCompletion()
     )
   }
 
@@ -207,8 +216,11 @@ private predicate inBooleanContext(AstNode n) {
   or
   exists(CaseExpr c, WhenClause w |
     not exists(c.getValue()) and
-    c.getABranch() = w and
+    c.getABranch() = w
+  |
     w.getPattern(_) = n
+    or
+    w = n
   )
 }
 
@@ -229,15 +241,18 @@ private predicate inMatchingContext(AstNode n) {
   or
   exists(CaseExpr c, WhenClause w |
     exists(c.getValue()) and
-    c.getABranch() = w and
+    c.getABranch() = w
+  |
     w.getPattern(_) = n
+    or
+    w = n
   )
   or
   n instanceof CasePattern
   or
   n = any(ReferencePattern p).getExpr()
   or
-  n.(Trees::DefaultValueParameterTree).hasDefaultValue()
+  n.(CfgImpl::Trees::DefaultValueParameterTree).hasDefaultValue()
 }
 
 /**
@@ -274,7 +289,8 @@ abstract class ConditionalCompletion extends NormalCompletion {
  * A completion that represents evaluation of an expression
  * with a Boolean value.
  */
-class BooleanCompletion extends ConditionalCompletion, NonNestedNormalCompletion, TBooleanCompletion {
+class BooleanCompletion extends ConditionalCompletion, NonNestedNormalCompletion, TBooleanCompletion
+{
   BooleanCompletion() { this = TBooleanCompletion(value) }
 
   /** Gets the dual Boolean completion. */

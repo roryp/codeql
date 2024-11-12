@@ -345,21 +345,16 @@ module TaintedPath {
    *
    * This is relevant for paths that are known to be normalized.
    */
-  class StartsWithDotDotSanitizer extends BarrierGuardNode {
-    StringOps::StartsWith startsWith;
-
-    StartsWithDotDotSanitizer() {
-      this = startsWith and
-      isDotDotSlashPrefix(startsWith.getSubstring())
-    }
+  class StartsWithDotDotSanitizer extends BarrierGuardNode instanceof StringOps::StartsWith {
+    StartsWithDotDotSanitizer() { isDotDotSlashPrefix(super.getSubstring()) }
 
     override predicate blocks(boolean outcome, Expr e, DataFlow::FlowLabel label) {
       // Sanitize in the false case for:
       //   .startsWith(".")
       //   .startsWith("..")
       //   .startsWith("../")
-      outcome = startsWith.getPolarity().booleanNot() and
-      e = startsWith.getBaseString().asExpr() and
+      outcome = super.getPolarity().booleanNot() and
+      e = super.getBaseString().asExpr() and
       exists(Label::PosixPath posixPath | posixPath = label |
         posixPath.isNormalized() and
         posixPath.isRelative()
@@ -577,16 +572,15 @@ module TaintedPath {
   }
 
   /**
-   * A source of remote user input, considered as a flow source for
-   * tainted-path vulnerabilities.
+   * DEPRECATED: Use `ActiveThreatModelSource` from Concepts instead!
    */
-  class RemoteFlowSourceAsSource extends Source {
-    RemoteFlowSourceAsSource() {
-      exists(RemoteFlowSource src |
-        this = src and
-        not src instanceof ClientSideRemoteFlowSource
-      )
-    }
+  deprecated class RemoteFlowSourceAsSource = ActiveThreatModelSourceAsSource;
+
+  /**
+   * An active threat-model source, considered as a flow source.
+   */
+  private class ActiveThreatModelSourceAsSource extends Source instanceof ActiveThreatModelSource {
+    ActiveThreatModelSourceAsSource() { not this instanceof ClientSideRemoteFlowSource }
   }
 
   /**
@@ -658,10 +652,11 @@ module TaintedPath {
   }
 
   /**
-   * A `templateUrl` member of an AngularJS directive.
+   * DEPRECATED. This is no longer seen as a path-injection sink. It is tentatively handled
+   * by the client-side URL redirection query for now.
    */
-  class AngularJSTemplateUrlSink extends Sink, DataFlow::ValueNode {
-    AngularJSTemplateUrlSink() { this = any(AngularJS::CustomDirective d).getMember("templateUrl") }
+  deprecated class AngularJSTemplateUrlSink extends DataFlow::ValueNode instanceof Sink {
+    AngularJSTemplateUrlSink() { none() }
   }
 
   /**
@@ -846,6 +841,28 @@ module TaintedPath {
       dst = call and
       srclabel = dstlabel
     )
+    or
+    exists(HtmlSanitizerCall call |
+      src = call.getInput() and
+      dst = call and
+      srclabel = dstlabel
+    )
+    or
+    exists(DataFlow::CallNode join |
+      // path.join() with spread argument
+      join = NodeJSLib::Path::moduleMember("join").getACall() and
+      src = join.getASpreadArgument() and
+      dst = join and
+      (
+        srclabel.(Label::PosixPath).canContainDotDotSlash()
+        or
+        srclabel instanceof Label::SplitPath
+      ) and
+      dstlabel.(Label::PosixPath).isNormalized() and
+      if isRelative(join.getArgument(0).getStringValue())
+      then dstlabel.(Label::PosixPath).isRelative()
+      else dstlabel.(Label::PosixPath).isAbsolute()
+    )
   }
 
   /**
@@ -945,5 +962,9 @@ module TaintedPath {
         else dstlabel.isAbsolute()
       )
     )
+  }
+
+  private class SinkFromModel extends Sink {
+    SinkFromModel() { this = ModelOutput::getASinkNode("path-injection").asSink() }
   }
 }

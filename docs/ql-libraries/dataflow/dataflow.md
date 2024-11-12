@@ -294,7 +294,10 @@ through an additional step targeting a `PostUpdateNode`).
 
 It is recommended to introduce `PostUpdateNode`s for all `ArgumentNode`s (this
 can be skipped for immutable arguments), and all field qualifiers for both
-reads and stores. 
+reads and stores. Note also that in the case of compound arguments, such as
+`b ? x : y`, it is recommended to have post-update nodes for `x` and `y` (and
+not the compound argument itself), and let `[post update] x` have both `x`
+and `b ? x : y` as pre-update nodes (and similarly for `[post update] y`).
 
 Remember to define local flow for `PostUpdateNode`s as well in
 `simpleLocalFlowStep`.  In general out-going local flow from `PostUpdateNode`s
@@ -416,11 +419,15 @@ class Content extends TContent {
 
 newtype TContentSet =
   TSingletonContent(Content c) or
+  TKnownOrUnknownArrayElementContent(TKnownArrayElementContent c) or
   TAnyArrayElementContent()
 
 class ContentSet extends TContentSet {
   Content getAStoreContent() {
     this = TSingletonContent(result)
+    or
+    // for reverse stores
+    this = TKnownOrUnknownArrayElementContent(result)
     or
     // for reverse stores
     this = TAnyArrayElementContent() and
@@ -429,6 +436,13 @@ class ContentSet extends TContentSet {
 
   Content getAReadContent() {
     this = TSingletonContent(result)
+    or
+    exists(TKnownArrayElementContent c |
+      this = TKnownOrUnknownArrayElementContent(c) |
+      result = c
+      or
+      result = TUnknownArrayElementContent()
+    )
     or
     this = TAnyArrayElementContent() and
     (result = TUnknownArrayElementContent() or result = TKnownArrayElementContent(_))
@@ -444,12 +458,10 @@ a[0] = tainted
 # storeStep(not_tainted, TSingletonContent(TKnownArrayElementContent(1)), [post update] a)
 a[1] = not_tainted
 
-# readStep(a, TSingletonContent(TKnownArrayElementContent(0)), a[0])
-# readStep(a, TSingletonContent(TUnknownArrayElementContent()), a[0])
+# readStep(a, TKnownOrUnknownArrayElementContent(TKnownArrayElementContent(0)), a[0])
 sink(a[0]) # bad
 
-# readStep(a, TSingletonContent(TKnownArrayElementContent(1)), a[1])
-# readStep(a, TSingletonContent(TUnknownArrayElementContent()), a[1])
+# readStep(a, TKnownOrUnknownArrayElementContent(TKnownArrayElementContent(1)), a[1])
 sink(a[1]) # good
 
 # readStep(a, TAnyArrayElementContent(), a[unknown])
@@ -458,26 +470,24 @@ sink(a[unknown]) # bad; unknown may be 0
 # storeStep(tainted, TSingletonContent(TUnknownArrayElementContent()), [post update] b)
 b[unknown] = tainted
 
-# readStep(b, TSingletonContent(TKnownArrayElementContent(0)), b[0])
-# readStep(b, TSingletonContent(TUnknownArrayElementContent()), b[0])
+# readStep(b, TKnownOrUnknownArrayElementContent(TKnownArrayElementContent(0)), b[0])
 sink(b[0]) # bad; unknown may be 0
 
-# storeStep(tainted, TSingletonContent(TKnownArrayElementContent(0)), [post update] c[unknown])
-# storeStep(not_tainted, TSingletonContent(TKnownArrayElementContent(1)), [post update] c[unknown])
-# readStep(c, TAnyArrayElementContent(), c[unknown])
-# storeStep([post update] c[unknown], TAnyArrayElementContent(), [post update] c) # auto-generated reverse store (see Example 2)
-c[unknown][0] = tainted
-c[unknown][1] = not_tainted
+# storeStep(tainted, TSingletonContent(TUnknownArrayElementContent()), [post update] c[0])
+# storeStep(not_tainted, TSingletonContent(TUnknownArrayElementContent()), [post update] c[1])
+# readStep(c, TKnownOrUnknownArrayElementContent(TKnownArrayElementContent(0)), c[0])
+# readStep(c, TKnownOrUnknownArrayElementContent(TKnownArrayElementContent(1)), c[1])
+# storeStep([post update] c[0], TSingletonContent(TKnownArrayElementContent(0)), [post update] c) # auto-generated reverse store (see Example 2)
+# storeStep([post update] c[1], TSingletonContent(TKnownArrayElementContent(1)), [post update] c) # auto-generated reverse store (see Example 2)
+c[0][unknown] = tainted
+c[1][unknown] = not_tainted
 
-
-# readStep(c[0], TSingletonContent(TKnownArrayElementContent(0)), c[0][0])
-# readStep(c[0], TSingletonContent(TUnknownArrayElementContent()), c[0][0])
-# readStep(c[0], TSingletonContent(TKnownArrayElementContent(1)), c[0][1])
-# readStep(c[0], TSingletonContent(TUnknownArrayElementContent()), c[0][1])
-# readStep(c, TSingletonContent(TKnownArrayElementContent(0)), c[0])
-# readStep(c, TSingletonContent(TUnknownArrayElementContent()), c[0])
+# readStep(c[0], TKnownOrUnknownArrayElementContent(TKnownArrayElementContent(0)), c[0][0])
+# readStep(c[1], TKnownOrUnknownArrayElementContent(TKnownArrayElementContent(0)), c[1][0])
+# readStep(c, TKnownOrUnknownArrayElementContent(TKnownArrayElementContent(0)), c[0])
+# readStep(c, TKnownOrUnknownArrayElementContent(TKnownArrayElementContent(1)), c[1])
 sink(c[0][0]) # bad; unknown may be 0
-sink(c[0][1]) # good
+sink(c[1][0]) # good
 ```
 
 ### Field flow barriers
@@ -538,12 +548,9 @@ DataFlowType getNodeType(Node n)
 ```
 and every `Node` should have a type.
 
-One also needs to define the string representation of a `DataFlowType`:
-```ql
-string ppReprType(DataFlowType t)
-```
-The `ppReprType` predicate is used for printing a type in the labels of
-`PathNode`s, this can be defined as `none()` if type pruning is not used.
+One also needs to define the string representation of a `DataFlowType`.
+The `DataFlowType.toString` predicate is used for printing a type in the labels of
+`PathNode`s, this should be defined as `result = ""` if type pruning is not used.
 
 Finally, one must define `CastNode` as a subclass of `Node` as those nodes
 where types should be checked. Usually this will be things like explicit casts.
@@ -578,18 +585,17 @@ However, joining the virtual dispatch relation with itself in this way is
 usually way too big to be feasible. Instead, the relation above should only be
 defined for those values of `call` for which the set of resulting dispatch
 targets might be reduced. To do this, define the set of `call`s that might for
-some reason benefit from a call context as the following predicate (the `c`
-column should be `call.getEnclosingCallable()`):
+some reason benefit from a call context as the following predicate:
 ```ql
-predicate mayBenefitFromCallContext(DataFlowCall call, DataFlowCallable c)
+predicate mayBenefitFromCallContext(DataFlowCall call)
 ```
 And then define `DataFlowCallable viableImplInCallContext(DataFlowCall call,
 DataFlowCall ctx)` as sketched above, but restricted to
-`mayBenefitFromCallContext(call, _)`.
+`mayBenefitFromCallContext(call)`.
 
 The shared implementation will then compare counts of virtual dispatch targets
 using `viableCallable` and `viableImplInCallContext` for each `call` in
-`mayBenefitFromCallContext(call, _)` and track call contexts during flow
+`mayBenefitFromCallContext(call)` and track call contexts during flow
 calculation when differences in these counts show an improved precision in
 further calls.
 
@@ -608,10 +614,29 @@ impact on performance for large databases.
 
 ### Hidden nodes
 
-Certain synthetic nodes can be hidden to exclude them from occurring in path
-explanations. This is done through the following predicate:
+Certain synthetic nodes are hidden by default to prevent them from occurring in
+path explanations. Which nodes are included in this is determined by the
+following predicate:
+
 ```ql
 predicate nodeIsHidden(Node n)
+```
+
+To include these nodes in path explanations, add the following to a
+configuration:
+
+```ql
+predicate includeHiddenNodes() { any() }
+```
+
+### Show more nodes in path explanations
+
+Path explanations skip over most nodes and only show the important nodes in a
+path. To ensure that particular nodes are shown, define the following predicate
+in a configuration:
+
+```ql
+predicate neverSkip(Node n)
 ```
 
 ### Unreachable nodes

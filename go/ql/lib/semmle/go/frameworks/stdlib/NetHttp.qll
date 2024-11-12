@@ -3,39 +3,13 @@
  */
 
 import go
-private import semmle.go.dataflow.ExternalFlow
-
-private class FlowSources extends SourceModelCsv {
-  override predicate row(string row) {
-    row =
-      [
-        "net/http;Request;true;Cookie;;;ReturnValue[0];remote",
-        "net/http;Request;true;Cookies;;;ReturnValue.ArrayElement;remote",
-        "net/http;Request;true;FormFile;;;ReturnValue[0..1];remote",
-        "net/http;Request;true;FormValue;;;ReturnValue;remote",
-        "net/http;Request;true;MultipartReader;;;ReturnValue[0];remote",
-        "net/http;Request;true;PostFormValue;;;ReturnValue;remote",
-        "net/http;Request;true;Referer;;;ReturnValue;remote",
-        "net/http;Request;true;UserAgent;;;ReturnValue;remote"
-      ]
-  }
-}
+private import semmle.go.dataflow.internal.DataFlowPrivate
+private import semmle.go.dataflow.internal.FlowSummaryImpl::Private
 
 /** Provides models of commonly used functions in the `net/http` package. */
 module NetHttp {
-  /** An access to an HTTP request field whose value may be controlled by an untrusted user. */
-  private class UserControlledRequestField extends UntrustedFlowSource::Range,
-    DataFlow::FieldReadNode {
-    UserControlledRequestField() {
-      exists(string fieldName | this.getField().hasQualifiedName("net/http", "Request", fieldName) |
-        fieldName =
-          ["Body", "GetBody", "Form", "PostForm", "MultipartForm", "Header", "Trailer", "URL"]
-      )
-    }
-  }
-
   /** The declaration of a variable which either is or has a field that implements the http.ResponseWriter type */
-  private class StdlibResponseWriter extends HTTP::ResponseWriter::Range {
+  private class StdlibResponseWriter extends Http::ResponseWriter::Range {
     SsaWithFields v;
 
     StdlibResponseWriter() {
@@ -52,7 +26,7 @@ module NetHttp {
     }
   }
 
-  private class HeaderWriteCall extends HTTP::HeaderWrite::Range, DataFlow::MethodCallNode {
+  private class HeaderWriteCall extends Http::HeaderWrite::Range, DataFlow::MethodCallNode {
     HeaderWriteCall() {
       this.getTarget().hasQualifiedName("net/http", "Header", "Add") or
       this.getTarget().hasQualifiedName("net/http", "Header", "Set")
@@ -62,7 +36,7 @@ module NetHttp {
 
     override DataFlow::Node getValue() { result = this.getArgument(1) }
 
-    override HTTP::ResponseWriter getResponseWriter() {
+    override Http::ResponseWriter getResponseWriter() {
       // find `v` in
       // ```
       // header := v.Header()
@@ -72,21 +46,20 @@ module NetHttp {
     }
   }
 
-  private class MapWrite extends HTTP::HeaderWrite::Range, DataFlow::Node {
-    Write write;
+  private class MapWrite extends Http::HeaderWrite::Range, DataFlow::Node {
     DataFlow::Node index;
     DataFlow::Node rhs;
 
     MapWrite() {
       this.getType().hasQualifiedName("net/http", "Header") and
-      write.writesElement(this, index, rhs)
+      any(Write write).writesElement(this, index, rhs)
     }
 
     override DataFlow::Node getName() { result = index }
 
     override DataFlow::Node getValue() { result = rhs }
 
-    override HTTP::ResponseWriter getResponseWriter() {
+    override Http::ResponseWriter getResponseWriter() {
       // find `v` in
       // ```
       // header := v.Header()
@@ -96,7 +69,7 @@ module NetHttp {
     }
   }
 
-  private class ResponseWriteHeaderCall extends HTTP::HeaderWrite::Range, DataFlow::MethodCallNode {
+  private class ResponseWriteHeaderCall extends Http::HeaderWrite::Range, DataFlow::MethodCallNode {
     ResponseWriteHeaderCall() {
       this.getTarget().implements("net/http", "ResponseWriter", "WriteHeader")
     }
@@ -107,10 +80,10 @@ module NetHttp {
 
     override DataFlow::Node getValue() { result = this.getArgument(0) }
 
-    override HTTP::ResponseWriter getResponseWriter() { result.getANode() = this.getReceiver() }
+    override Http::ResponseWriter getResponseWriter() { result.getANode() = this.getReceiver() }
   }
 
-  private class ResponseErrorCall extends HTTP::HeaderWrite::Range, DataFlow::CallNode {
+  private class ResponseErrorCall extends Http::HeaderWrite::Range, DataFlow::CallNode {
     ResponseErrorCall() { this.getTarget().hasQualifiedName("net/http", "Error") }
 
     override string getHeaderName() { result = "status" }
@@ -119,10 +92,10 @@ module NetHttp {
 
     override DataFlow::Node getValue() { result = this.getArgument(2) }
 
-    override HTTP::ResponseWriter getResponseWriter() { result.getANode() = this.getArgument(0) }
+    override Http::ResponseWriter getResponseWriter() { result.getANode() = this.getArgument(0) }
   }
 
-  private class RequestBody extends HTTP::RequestBody::Range, DataFlow::ExprNode {
+  private class RequestBody extends Http::RequestBody::Range, DataFlow::ExprNode {
     RequestBody() {
       exists(Function newRequest |
         newRequest.hasQualifiedName("net/http", "NewRequest") and
@@ -137,7 +110,29 @@ module NetHttp {
     }
   }
 
-  private class ResponseBody extends HTTP::ResponseBody::Range, DataFlow::ArgumentNode {
+  private DataFlow::Node getSummaryInputOrOutputNode(
+    DataFlow::CallNode call, SummaryComponentStack stack
+  ) {
+    exists(int n | result = call.getSyntacticArgument(n) |
+      if result = call.getImplicitVarargsArgument(_)
+      then
+        exists(
+          int lastParamIndex, SummaryComponentStack varArgsSliceArgument,
+          SummaryComponent arrayContentSC, DataFlow::ArrayContent arrayContent
+        |
+          lastParamIndex = call.getCall().getCalleeType().getNumParameter() - 1 and
+          varArgsSliceArgument = SummaryComponentStack::argument(lastParamIndex) and
+          arrayContentSC = SummaryComponent::content(arrayContent) and
+          stack = SummaryComponentStack::push(arrayContentSC, varArgsSliceArgument)
+        )
+      else stack = SummaryComponentStack::argument(n)
+    )
+    or
+    stack = SummaryComponentStack::argument(-1) and
+    result = call.getReceiver()
+  }
+
+  private class ResponseBody extends Http::ResponseBody::Range {
     DataFlow::Node responseWriter;
 
     ResponseBody() {
@@ -151,24 +146,37 @@ module NetHttp {
       exists(TaintTracking::FunctionModel model |
         // A modeled function conveying taint from some input to the response writer,
         // e.g. `io.Copy(responseWriter, someTaintedReader)`
+        this = model.getACall().getASyntacticArgument() and
         model.taintStep(this, responseWriter) and
+        responseWriter.getType().implements("net/http", "ResponseWriter")
+      )
+      or
+      exists(
+        SummarizedCallableImpl callable, DataFlow::CallNode call, SummaryComponentStack input,
+        SummaryComponentStack output
+      |
+        this = call.getASyntacticArgument() and
+        callable = call.getACalleeIncludingExternals() and
+        callable.propagatesFlow(input, output, _, _)
+      |
+        // A modeled function conveying taint from some input to the response writer,
+        // e.g. `io.Copy(responseWriter, someTaintedReader)`
+        // NB. SummarizedCallables do not implement a direct call-site-crossing flow step; instead
+        // they are implemented by a function body with internal dataflow nodes, so we mimic the
+        // one-step style for the particular case of taint propagation direct from an argument or receiver
+        // to another argument, receiver or return value, matching the behavior for a `TaintTracking::FunctionModel`.
+        this = getSummaryInputOrOutputNode(call, input) and
+        responseWriter.(DataFlow::PostUpdateNode).getPreUpdateNode() =
+          getSummaryInputOrOutputNode(call, output) and
         responseWriter.getType().implements("net/http", "ResponseWriter")
       )
     }
 
-    override HTTP::ResponseWriter getResponseWriter() { result.getANode() = responseWriter }
-  }
-
-  private class RedirectCall extends HTTP::Redirect::Range, DataFlow::CallNode {
-    RedirectCall() { this.getTarget().hasQualifiedName("net/http", "Redirect") }
-
-    override DataFlow::Node getUrl() { result = this.getArgument(2) }
-
-    override HTTP::ResponseWriter getResponseWriter() { result.getANode() = this.getArgument(0) }
+    override Http::ResponseWriter getResponseWriter() { result.getANode() = responseWriter }
   }
 
   /** A call to a function in the `net/http` package that performs an HTTP request to a URL. */
-  private class RequestCall extends HTTP::ClientRequest::Range, DataFlow::CallNode {
+  private class RequestCall extends Http::ClientRequest::Range, DataFlow::CallNode {
     RequestCall() {
       exists(string functionName |
         (
@@ -185,7 +193,7 @@ module NetHttp {
   }
 
   /** A call to the Client.Do function in the `net/http` package. */
-  private class ClientDo extends HTTP::ClientRequest::Range, DataFlow::MethodCallNode {
+  private class ClientDo extends Http::ClientRequest::Range, DataFlow::MethodCallNode {
     ClientDo() { this.getTarget().hasQualifiedName("net/http", "Client", "Do") }
 
     override DataFlow::Node getUrl() {
@@ -212,7 +220,7 @@ module NetHttp {
   }
 
   /** A call to the `Transport.RoundTrip` function in the `net/http` package. */
-  private class TransportRoundTrip extends HTTP::ClientRequest::Range, DataFlow::MethodCallNode {
+  private class TransportRoundTrip extends Http::ClientRequest::Range, DataFlow::MethodCallNode {
     TransportRoundTrip() { this.getTarget().hasQualifiedName("net/http", "Transport", "RoundTrip") }
 
     override DataFlow::Node getUrl() {
@@ -239,7 +247,7 @@ module NetHttp {
   }
 
   /** Fields and methods of `net/http.Request` that are not generally exploitable in an open-redirect attack. */
-  private class RedirectUnexploitableRequestFields extends HTTP::Redirect::UnexploitableSource {
+  private class RedirectUnexploitableRequestFields extends Http::Redirect::UnexploitableSource {
     RedirectUnexploitableRequestFields() {
       exists(Field f, string fieldName |
         f.hasQualifiedName("net/http", "Request", fieldName) and
@@ -257,7 +265,7 @@ module NetHttp {
     }
   }
 
-  private class Handler extends HTTP::RequestHandler::Range {
+  private class Handler extends Http::RequestHandler::Range {
     DataFlow::CallNode handlerReg;
 
     Handler() {
@@ -271,117 +279,19 @@ module NetHttp {
     override predicate guardedBy(DataFlow::Node check) { check = handlerReg.getArgument(0) }
   }
 
-  private class FunctionModels extends TaintTracking::FunctionModel {
-    FunctionInput inp;
-    FunctionOutput outp;
-
-    FunctionModels() {
-      // signature: func CanonicalHeaderKey(s string) string
-      this.hasQualifiedName("net/http", "CanonicalHeaderKey") and
-      (inp.isParameter(0) and outp.isResult())
-      or
-      // signature: func Error(w ResponseWriter, error string, code int)
-      this.hasQualifiedName("net/http", "Error") and
-      (inp.isParameter(1) and outp.isParameter(0))
-      or
-      // signature: func MaxBytesReader(w ResponseWriter, r io.ReadCloser, n int64) io.ReadCloser
-      this.hasQualifiedName("net/http", "MaxBytesReader") and
-      (inp.isParameter(1) and outp.isResult())
-      or
-      // signature: func NewRequest(method, url string, body io.Reader) (*Request, error)
-      this.hasQualifiedName("net/http", "NewRequest") and
-      (inp.isParameter(1) and outp.isResult(0))
-      or
-      // signature: func NewRequestWithContext(ctx context.Context, method, url string, body io.Reader) (*Request, error)
-      this.hasQualifiedName("net/http", "NewRequestWithContext") and
-      (inp.isParameter(2) and outp.isResult(0))
-      or
-      // signature: func ReadRequest(b *bufio.Reader) (*Request, error)
-      this.hasQualifiedName("net/http", "ReadRequest") and
-      (inp.isParameter(0) and outp.isResult(0))
-      or
-      // signature: func ReadResponse(r *bufio.Reader, req *Request) (*Response, error)
-      this.hasQualifiedName("net/http", "ReadResponse") and
-      (inp.isParameter(0) and outp.isResult(0))
-      or
-      // signature: func SetCookie(w ResponseWriter, cookie *Cookie)
-      this.hasQualifiedName("net/http", "SetCookie") and
-      (inp.isParameter(1) and outp.isParameter(0))
+  /**
+   * DEPRECATED: Use `FileSystemAccess::Range` instead.
+   *
+   * The File system access sinks
+   */
+  deprecated class HttpServeFile extends FileSystemAccess::Range, DataFlow::CallNode {
+    HttpServeFile() {
+      exists(Function f |
+        f.hasQualifiedName("net/http", "ServeFile") and
+        this = f.getACall()
+      )
     }
 
-    override predicate hasTaintFlow(FunctionInput input, FunctionOutput output) {
-      input = inp and output = outp
-    }
-  }
-
-  private class MethodModels extends TaintTracking::FunctionModel, Method {
-    FunctionInput inp;
-    FunctionOutput outp;
-
-    MethodModels() {
-      // signature: func (Header) Add(key string, value string)
-      this.hasQualifiedName("net/http", "Header", "Add") and
-      (inp.isParameter(_) and outp.isReceiver())
-      or
-      // signature: func (Header) Clone() Header
-      this.hasQualifiedName("net/http", "Header", "Clone") and
-      (inp.isReceiver() and outp.isResult())
-      or
-      // signature: func (Header) Get(key string) string
-      this.hasQualifiedName("net/http", "Header", "Get") and
-      (inp.isReceiver() and outp.isResult())
-      or
-      // signature: func (Header) Set(key string, value string)
-      this.hasQualifiedName("net/http", "Header", "Set") and
-      (inp.isParameter(_) and outp.isReceiver())
-      or
-      // signature: func (Header) Values(key string) []string
-      this.hasQualifiedName("net/http", "Header", "Values") and
-      (inp.isReceiver() and outp.isResult())
-      or
-      // signature: func (Header) Write(w io.Writer) error
-      this.hasQualifiedName("net/http", "Header", "Write") and
-      (inp.isReceiver() and outp.isParameter(0))
-      or
-      // signature: func (Header) WriteSubset(w io.Writer, exclude map[string]bool) error
-      this.hasQualifiedName("net/http", "Header", "WriteSubset") and
-      (inp.isReceiver() and outp.isParameter(0))
-      or
-      // signature: func (*Request) AddCookie(c *Cookie)
-      this.hasQualifiedName("net/http", "Request", "AddCookie") and
-      (inp.isParameter(0) and outp.isReceiver())
-      or
-      // signature: func (*Request) Clone(ctx context.Context) *Request
-      this.hasQualifiedName("net/http", "Request", "Clone") and
-      (inp.isReceiver() and outp.isResult())
-      or
-      // signature: func (*Request) Write(w io.Writer) error
-      this.hasQualifiedName("net/http", "Request", "Write") and
-      (inp.isReceiver() and outp.isParameter(0))
-      or
-      // signature: func (*Request) WriteProxy(w io.Writer) error
-      this.hasQualifiedName("net/http", "Request", "WriteProxy") and
-      (inp.isReceiver() and outp.isParameter(0))
-      or
-      // signature: func (*Response) Write(w io.Writer) error
-      this.hasQualifiedName("net/http", "Response", "Write") and
-      (inp.isReceiver() and outp.isParameter(0))
-      or
-      // signature: func (*Transport) Clone() *Transport
-      this.hasQualifiedName("net/http", "Transport", "Clone") and
-      (inp.isReceiver() and outp.isResult())
-      or
-      // signature: func (Hijacker) Hijack() (net.Conn, *bufio.ReadWriter, error)
-      this.implements("net/http", "Hijacker", "Hijack") and
-      (inp.isReceiver() and outp.isResult([0, 1]))
-      or
-      // signature: func (ResponseWriter) Write([]byte) (int, error)
-      this.implements("net/http", "ResponseWriter", "Write") and
-      (inp.isParameter(0) and outp.isReceiver())
-    }
-
-    override predicate hasTaintFlow(FunctionInput input, FunctionOutput output) {
-      input = inp and output = outp
-    }
+    override DataFlow::Node getAPathArgument() { result = this.getArgument(2) }
   }
 }

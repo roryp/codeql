@@ -1,5 +1,5 @@
-using Microsoft.CodeAnalysis;
 using System.IO;
+using Microsoft.CodeAnalysis;
 
 namespace Semmle.Extraction.CSharp.Entities
 {
@@ -42,7 +42,7 @@ namespace Semmle.Extraction.CSharp.Entities
             }
             else
             {
-                Context.ModelError(Symbol, $"Undhandled event accessor kind {Symbol.ToDisplayString()}");
+                Context.ModelError(Symbol, $"Unhandled event accessor kind {Symbol.ToDisplayString()}");
                 return;
             }
 

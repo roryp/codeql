@@ -15,13 +15,15 @@
 
 import cpp
 import semmle.code.cpp.commons.Buffer
+import semmle.code.cpp.ir.dataflow.DataFlow
 import semmle.code.cpp.rangeanalysis.SimpleRangeAnalysis
 import LoopBounds
 
 private predicate staticBufferBase(VariableAccess access, Variable v) {
   v.getType().(ArrayType).getBaseType() instanceof CharType and
   access = v.getAnAccess() and
-  not memberMayBeVarSize(_, v)
+  not memberMayBeVarSize(_, v) and
+  not access.isUnevaluated()
 }
 
 predicate staticBuffer(VariableAccess access, Variable v, int size) {
@@ -40,7 +42,9 @@ class BufferAccess extends ArrayExpr {
     not exists(Macro m |
       m.getName() = "strcmp" and
       m.getAnInvocation().getAnExpandedElement() = this
-    )
+    ) and
+    //A buffer access must be reachable (not in dead code)
+    reachable(this)
   }
 
   int bufferSize() { staticBuffer(this.getArrayBase(), _, result) }

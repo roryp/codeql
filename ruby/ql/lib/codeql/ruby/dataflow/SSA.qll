@@ -6,7 +6,6 @@
  * Provides classes for working with static single assignment (SSA) form.
  */
 module Ssa {
-  private import codeql.Locations
   private import codeql.ruby.CFG
   private import codeql.ruby.ast.Variable
   private import internal.SsaImpl as SsaImpl
@@ -177,8 +176,8 @@ module Ssa {
 
     override string toString() { result = this.getControlFlowNode().toString() }
 
-    /** Gets the location of this SSA definition. */
-    Location getLocation() { result = this.getControlFlowNode().getLocation() }
+    /** Gets the scope of this SSA definition. */
+    CfgScope getScope() { result = this.getBasicBlock().getScope() }
   }
 
   /**
@@ -190,7 +189,7 @@ module Ssa {
    * ```
    */
   class WriteDefinition extends Definition, SsaImpl::WriteDefinition {
-    private VariableWriteAccess write;
+    private VariableWriteAccessCfgNode write;
 
     WriteDefinition() {
       exists(BasicBlock bb, int i, Variable v |
@@ -200,11 +199,20 @@ module Ssa {
     }
 
     /** Gets the underlying write access. */
-    final VariableWriteAccess getWriteAccess() { result = write }
+    final VariableWriteAccessCfgNode getWriteAccess() { result = write }
 
     /**
-     * Holds if this SSA definition represents a direct assignment of `value`
-     * to the underlying variable.
+     * Holds if this SSA definition assigns `value` to the underlying variable.
+     *
+     * This is either a direct assignment, `x = value`, or an assignment via
+     * simple pattern matching
+     *
+     * ```rb
+     * case value
+     *  in Foo => x then ...
+     *  in y => then ...
+     * end
+     * ```
      */
     predicate assigns(CfgNodes::ExprCfgNode value) {
       exists(CfgNodes::ExprNodes::AssignExprCfgNode a, BasicBlock bb, int i |
@@ -212,11 +220,19 @@ module Ssa {
         a = bb.getNode(i) and
         value = a.getRhs()
       )
+      or
+      exists(CfgNodes::ExprNodes::CaseExprCfgNode case, CfgNodes::AstCfgNode pattern |
+        case.getValue() = value and
+        pattern = case.getBranch(_).(CfgNodes::ExprNodes::InClauseCfgNode).getPattern()
+      |
+        this.getWriteAccess() =
+          [pattern, pattern.(CfgNodes::ExprNodes::AsPatternCfgNode).getVariableAccess()]
+      )
     }
 
-    final override string toString() { result = Definition.super.toString() }
+    final override string toString() { result = write.toString() }
 
-    final override Location getLocation() { result = this.getControlFlowNode().getLocation() }
+    final override Location getLocation() { result = write.getLocation() }
   }
 
   /**
@@ -254,14 +270,16 @@ module Ssa {
    * `x` is inserted at the start of `m`.
    */
   class UninitializedDefinition extends Definition, SsaImpl::WriteDefinition {
+    private Variable v;
+
     UninitializedDefinition() {
-      exists(BasicBlock bb, int i, Variable v |
+      exists(BasicBlock bb, int i |
         this.definesAt(v, bb, i) and
         SsaImpl::uninitializedWrite(bb, i, v)
       )
     }
 
-    final override string toString() { result = "<uninitialized>" }
+    final override string toString() { result = "<uninitialized> " + v }
 
     final override Location getLocation() { result = this.getBasicBlock().getLocation() }
   }
@@ -290,9 +308,27 @@ module Ssa {
       )
     }
 
-    final override string toString() { result = "<captured>" }
+    final override string toString() { result = "<captured entry> " + this.getSourceVariable() }
 
     override Location getLocation() { result = this.getBasicBlock().getLocation() }
+  }
+
+  /**
+   * An SSA definition inserted at the beginning of a scope to represent a captured `self` variable.
+   * For example, in
+   *
+   * ```rb
+   * def m(x)
+   *   x.tap do |x|
+   *     foo(x)
+   *   end
+   * end
+   * ```
+   *
+   * an entry definition for `self` is inserted at the start of the `do` block.
+   */
+  class CapturedSelfDefinition extends CapturedEntryDefinition {
+    CapturedSelfDefinition() { this.getSourceVariable() instanceof SelfVariable }
   }
 
   /**
@@ -325,7 +361,7 @@ module Ssa {
      */
     final Definition getPriorDefinition() { result = SsaImpl::uncertainWriteDefinitionInput(this) }
 
-    override string toString() { result = this.getControlFlowNode().toString() }
+    override string toString() { result = "<captured exit> " + this.getSourceVariable() }
   }
 
   /**

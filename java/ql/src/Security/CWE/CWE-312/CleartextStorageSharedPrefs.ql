@@ -15,10 +15,10 @@
 import java
 import semmle.code.java.security.CleartextStorageSharedPrefsQuery
 
-from SensitiveSource data, SharedPreferencesEditorMethodAccess s, Expr input, Expr store
+from SensitiveSource data, SharedPreferencesEditorMethodCall s, Expr input, Expr store
 where
   input = s.getAnInput() and
   store = s.getAStore() and
   data.flowsTo(input)
-select store, "'SharedPreferences' class $@ containing $@ is stored $@. Data was added $@.", s,
-  s.toString(), data, "sensitive data", store, "here", input, "here"
+select store, "This stores the 'SharedPreferences' class $@ containing $@ which $@.", s,
+  s.toString(), data, "sensitive data", input, "was set as a shared preference"

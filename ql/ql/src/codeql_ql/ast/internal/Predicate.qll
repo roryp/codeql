@@ -90,16 +90,28 @@ private module Cached {
     )
   }
 
+  pragma[nomagic]
+  private ClassPredicate getClassPredicate(Class c, string name, int arity) {
+    result = c.getClassPredicate(name) and
+    arity = result.getArity()
+  }
+
+  pragma[nomagic]
+  private predicate resolveSelfClassCalls0(Class c, string name, int arity, MemberCall mc) {
+    mc.getBase() instanceof ThisAccess and
+    c = mc.getEnclosingPredicate().getParent() and
+    name = mc.getMemberName() and
+    arity = mc.getNumberOfArguments()
+  }
+
   /**
    *  Holds if `mc` is a `this.method()` call to a predicate defined in the same class.
    * helps avoid spuriously resolving to predicates in super-classes.
    */
   private predicate resolveSelfClassCalls(MemberCall mc, PredicateOrBuiltin p) {
-    exists(Class c |
-      mc.getBase() instanceof ThisAccess and
-      c = mc.getEnclosingPredicate().getParent() and
-      p = c.getClassPredicate(mc.getMemberName()) and
-      p.getArity() = mc.getNumberOfArguments()
+    exists(Class c, string name, int arity |
+      resolveSelfClassCalls0(c, name, arity, mc) and
+      p = getClassPredicate(c, name, arity)
     )
   }
 
@@ -157,7 +169,7 @@ private module Cached {
     )
   }
 
-  private predicate resolveBuildinPredicateCall(PredicateCall call, BuiltinClassless pred) {
+  private predicate resolveBuiltinPredicateCall(PredicateCall call, BuiltinClassless pred) {
     call.getNumberOfArguments() = pred.getArity() and
     call.getPredicateName() = pred.getName()
   }
@@ -167,7 +179,7 @@ private module Cached {
     resolvePredicateCall(c, p)
     or
     not resolvePredicateCall(c, _) and
-    resolveBuildinPredicateCall(c, p)
+    resolveBuiltinPredicateCall(c, p)
     or
     resolveMemberCall(c, p)
     or
@@ -211,7 +223,9 @@ module PredConsistency {
     c > 1 and
     resolvePredicateExpr(pe, p) and
     // parameterized modules are expected to resolve to multiple.
-    not exists(ClasslessPredicate sig | not sig.isSignature() and resolvePredicateExpr(pe, sig))
+    not exists(Predicate sig | sig.getParent*().hasAnnotation("signature") |
+      resolvePredicateExpr(pe, sig)
+    )
   }
 
   query predicate multipleResolveCall(Call call, int c, PredicateOrBuiltin p) {
@@ -227,6 +241,6 @@ module PredConsistency {
     c > 1 and
     resolveCall(call, p) and
     // parameterized modules are expected to resolve to multiple.
-    not exists(ClasslessPredicate sig | not sig.isSignature() and resolveCall(call, sig))
+    not exists(Predicate sig | sig.getParent*().hasAnnotation("signature") | resolveCall(call, sig))
   }
 }

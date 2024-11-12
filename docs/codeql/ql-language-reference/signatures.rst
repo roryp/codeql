@@ -22,8 +22,8 @@ Predicate signatures are defined much like predicates themselves, but they do no
 In detail, a predicate signature definition consists of:
 
 #. The keyword ``signature``.
-#. The keyword ``predicate`` (allows subsitution with a :ref:`predicate without result <predicates-without-result>`),
-   or the type of the result (allows subsitution with a :ref:`predicate with result <predicates-with-result>`).
+#. The keyword ``predicate`` (allows substitution with a :ref:`predicate without result <predicates-without-result>`),
+   or the type of the result (allows substitution with a :ref:`predicate with result <predicates-with-result>`).
 #. The name of the predicate signature. This is an `identifier <https://codeql.github.com/docs/ql-language-reference/ql-language-specification/#identifiers>`_
    starting with a lowercase letter.
 #. The arguments to the predicate signature, if any, separated by commas.
@@ -40,10 +40,11 @@ Type signatures
 ===============
 
 Type signatures declare module parameters that will be substituted with types when the module is instantiated.
-Type signatures are used to specify supertypes and are the simplest category of signatures.
+Type signatures may specify supertypes and required member predicates (in addition to those member predicates that are
+implied by the supertypes).
 
 The substitution of type signatures relies on structural typing. That is, types do not have to be explicitly defined as
-implementing a type signature - they just need to have the specified (transitive) supertypes.
+implementing a type signature - they just need to have the specified (transitive) supertypes and member predicates.
 
 In detail, a type signature definition consists of:
 
@@ -52,13 +53,18 @@ In detail, a type signature definition consists of:
 #. The name of the type signature. This is an `identifier <https://codeql.github.com/docs/ql-language-reference/ql-language-specification/#identifiers>`_
    starting with a uppercase letter.
 #. Optionally, the keyword ``extends`` followed by a list of types, separated by commas.
-#. A semicolon ``;``.
+#. Either a semicolon ``;`` or a list of predicate signatures enclosed in braces.
+   The ``signature`` keyword is omitted for these contained signatures.
 
 For example:
 
 .. code-block:: ql
 
     signature class ExtendsInt extends int;
+
+    signature class CanBePrinted {
+      string toString();
+    }
 
 Module signatures
 =================
@@ -67,7 +73,7 @@ Module signatures declare module parameters that will be substituted with module
 Module signatures specify a collection of types and predicates that a module needs to contain under given names and
 matching given signatures.
 
-Unlike type signatures and predicate signatures, the substitution of type signatures relies on nominal typing.
+Unlike type signatures and predicate signatures, the substitution of module signatures relies on nominal typing.
 That is, the definition of a module must declare the module signatures it implements.
 
 In detail, a type signature definition consists of:
@@ -77,8 +83,15 @@ In detail, a type signature definition consists of:
 #. The name of the module signature. This is an `identifier <https://codeql.github.com/docs/ql-language-reference/ql-language-specification/#identifiers>`_
    starting with a uppercase letter.
 #. Optionally, a list of parameters for :ref:`parameterized module signatures <parameterized-module-signatures>`.
-#. The module signature body, consisting of type signatures and predicate signatures enclosed in braces.
+#. The module signature body, consisting of type signatures, predicate signatures, and default predicates enclosed in braces.
    The ``signature`` keyword is omitted for these contained signatures.
+
+Module signature default predicates are syntactically constructed like predicate signatures,
+but preceded by the ``default`` keyword, and with a predicate body instead of the concluding
+semicolon ``;``.
+Default predicate bodies are restricted in that they may not use entities that in any way
+depend on other module signature members or parameters of the module signature or any
+existing enclosing modules.
 
 For example:
 
@@ -87,6 +100,7 @@ For example:
     signature module MSig {
       class T;
       predicate restriction(T t);
+      default string descr(T t) { result = "default" }
     }
 
     module Module implements MSig {

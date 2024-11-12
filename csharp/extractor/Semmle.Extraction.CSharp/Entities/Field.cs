@@ -1,11 +1,11 @@
-using Microsoft.CodeAnalysis;
-using System.Linq;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System;
+using System.IO;
+using System.Linq;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Semmle.Extraction.CSharp.Entities.Expressions;
 using Semmle.Extraction.Entities;
 using Semmle.Extraction.Kinds;
-using Semmle.Extraction.CSharp.Entities.Expressions;
-using System.IO;
 
 namespace Semmle.Extraction.CSharp.Entities
 {
@@ -26,13 +26,14 @@ namespace Semmle.Extraction.CSharp.Entities
 
         public override void Populate(TextWriter trapFile)
         {
-            PopulateMetadataHandle(trapFile);
             PopulateAttributes();
             ContainingType!.PopulateGenerics();
             PopulateNullability(trapFile, Symbol.GetAnnotatedType());
+            PopulateRefKind(trapFile, Symbol.RefKind);
 
             var unboundFieldKey = Field.Create(Context, Symbol.OriginalDefinition);
-            trapFile.fields(this, (Symbol.IsConst ? 2 : 1), Symbol.Name, ContainingType, Type.TypeRef, unboundFieldKey);
+            var kind = Symbol.IsConst ? VariableKind.Const : VariableKind.None;
+            trapFile.fields(this, kind, Symbol.Name, ContainingType, Type.TypeRef, unboundFieldKey);
 
             PopulateModifiers(trapFile);
 
@@ -108,9 +109,9 @@ namespace Semmle.Extraction.CSharp.Entities
             string? constValue, ref int child)
         {
             var type = Symbol.GetAnnotatedType();
-            var simpleAssignExpr = new Expression(new ExpressionInfo(Context, type, loc, ExprKind.SIMPLE_ASSIGN, this, child++, false, constValue));
+            var simpleAssignExpr = new Expression(new ExpressionInfo(Context, type, loc, ExprKind.SIMPLE_ASSIGN, this, child++, isCompilerGenerated: true, constValue));
             Expression.CreateFromNode(new ExpressionNodeInfo(Context, initializer, simpleAssignExpr, 0));
-            var access = new Expression(new ExpressionInfo(Context, type, Location, ExprKind.FIELD_ACCESS, simpleAssignExpr, 1, false, constValue));
+            var access = new Expression(new ExpressionInfo(Context, type, Location, ExprKind.FIELD_ACCESS, simpleAssignExpr, 1, isCompilerGenerated: true, constValue));
             trapFile.expr_access(access, this);
             return access;
         }

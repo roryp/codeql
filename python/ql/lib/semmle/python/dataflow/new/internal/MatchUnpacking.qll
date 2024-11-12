@@ -69,8 +69,8 @@ predicate matchSubjectFlowStep(Node nodeFrom, Node nodeTo) {
     subject = match.getSubject() and
     target = match.getCase(_).(Case).getPattern()
   |
-    nodeFrom.asExpr() = subject and
-    nodeTo.asCfgNode().getNode() = target
+    nodeFrom.(CfgNode).getNode().getNode() = subject and
+    nodeTo.(CfgNode).getNode().getNode() = target
   )
 }
 
@@ -84,12 +84,14 @@ predicate matchAsFlowStep(Node nodeFrom, Node nodeTo) {
     // That way, information can propagate from the interior pattern to the alias.
     //
     // the subject flows to the interior pattern
-    nodeFrom.asCfgNode().getNode() = subject and
-    nodeTo.asCfgNode().getNode() = subject.getPattern()
+    nodeFrom.(CfgNode).getNode().getNode() = subject and
+    nodeTo.(CfgNode).getNode().getNode() = subject.getPattern()
     or
     // the interior pattern flows to the alias
-    nodeFrom.asCfgNode().getNode() = subject.getPattern() and
-    nodeTo.asVar().getDefinition().(PatternAliasDefinition).getDefiningNode().getNode() = alias
+    nodeFrom.(CfgNode).getNode().getNode() = subject.getPattern() and
+    exists(PatternAliasDefinition pad | pad.getDefiningNode().getNode() = alias |
+      nodeTo.(CfgNode).getNode() = pad.getDefiningNode()
+    )
   )
 }
 
@@ -99,8 +101,8 @@ predicate matchAsFlowStep(Node nodeFrom, Node nodeTo) {
  */
 predicate matchOrFlowStep(Node nodeFrom, Node nodeTo) {
   exists(MatchOrPattern subject, Pattern pattern | pattern = subject.getAPattern() |
-    nodeFrom.asCfgNode().getNode() = subject and
-    nodeTo.asCfgNode().getNode() = pattern
+    nodeFrom.(CfgNode).getNode().getNode() = subject and
+    nodeTo.(CfgNode).getNode().getNode() = pattern
   )
 }
 
@@ -110,8 +112,8 @@ predicate matchOrFlowStep(Node nodeFrom, Node nodeTo) {
  */
 predicate matchLiteralFlowStep(Node nodeFrom, Node nodeTo) {
   exists(MatchLiteralPattern pattern, Expr literal | literal = pattern.getLiteral() |
-    nodeFrom.asExpr() = literal and
-    nodeTo.asCfgNode().getNode() = pattern
+    nodeFrom.(CfgNode).getNode().getNode() = literal and
+    nodeTo.(CfgNode).getNode().getNode() = pattern
   )
 }
 
@@ -121,8 +123,10 @@ predicate matchLiteralFlowStep(Node nodeFrom, Node nodeTo) {
  */
 predicate matchCaptureFlowStep(Node nodeFrom, Node nodeTo) {
   exists(MatchCapturePattern capture, Name var | capture.getVariable() = var |
-    nodeFrom.asCfgNode().getNode() = capture and
-    nodeTo.asVar().getDefinition().(PatternCaptureDefinition).getDefiningNode().getNode() = var
+    nodeFrom.(CfgNode).getNode().getNode() = capture and
+    exists(PatternCaptureDefinition pcd | pcd.getDefiningNode().getNode() = var |
+      nodeTo.(CfgNode).getNode() = pcd.getDefiningNode()
+    )
   )
 }
 
@@ -132,8 +136,8 @@ predicate matchCaptureFlowStep(Node nodeFrom, Node nodeTo) {
  */
 predicate matchValueFlowStep(Node nodeFrom, Node nodeTo) {
   exists(MatchValuePattern pattern, Expr value | value = pattern.getValue() |
-    nodeFrom.asExpr() = value and
-    nodeTo.asCfgNode().getNode() = pattern
+    nodeFrom.(CfgNode).getNode().getNode() = value and
+    nodeTo.(CfgNode).getNode().getNode() = pattern
   )
 }
 
@@ -145,8 +149,8 @@ predicate matchSequenceReadStep(Node nodeFrom, Content c, Node nodeTo) {
   exists(MatchSequencePattern subject, int index, Pattern element |
     element = subject.getPattern(index)
   |
-    nodeFrom.asCfgNode().getNode() = subject and
-    nodeTo.asCfgNode().getNode() = element and
+    nodeFrom.(CfgNode).getNode().getNode() = subject and
+    nodeTo.(CfgNode).getNode().getNode() = element and
     (
       // tuple content
       c.(TupleElementContent).getIndex() = index
@@ -173,7 +177,7 @@ predicate matchStarReadStep(Node nodeFrom, Content c, Node nodeTo) {
   exists(MatchSequencePattern subject, int index, MatchStarPattern star |
     star = subject.getPattern(index)
   |
-    nodeFrom.asCfgNode().getNode() = subject and
+    nodeFrom.(CfgNode).getNode().getNode() = subject and
     nodeTo = TStarPatternElementNode(star) and
     (
       // tuple content
@@ -200,7 +204,7 @@ predicate matchStarReadStep(Node nodeFrom, Content c, Node nodeTo) {
 predicate matchStarStoreStep(Node nodeFrom, Content c, Node nodeTo) {
   exists(MatchStarPattern star |
     nodeFrom = TStarPatternElementNode(star) and
-    nodeTo.asCfgNode().getNode() = star.getTarget() and
+    nodeTo.(CfgNode).getNode().getNode() = star.getTarget() and
     c instanceof ListElementContent
   )
 }
@@ -218,9 +222,9 @@ predicate matchMappingReadStep(Node nodeFrom, Content c, Node nodeTo) {
     key = keyValue.getKey() and
     value = keyValue.getValue()
   |
-    nodeFrom.asCfgNode().getNode() = subject and
-    nodeTo.asCfgNode().getNode() = value and
-    c.(DictionaryElementContent).getKey() = key.getLiteral().(StrConst).getText()
+    nodeFrom.(CfgNode).getNode().getNode() = subject and
+    nodeTo.(CfgNode).getNode().getNode() = value and
+    c.(DictionaryElementContent).getKey() = key.getLiteral().(StringLiteral).getText()
   )
 }
 
@@ -233,8 +237,8 @@ predicate matchMappingReadStep(Node nodeFrom, Content c, Node nodeTo) {
  */
 predicate matchMappingFlowStep(Node nodeFrom, Node nodeTo) {
   exists(MatchMappingPattern subject, MatchDoubleStarPattern dstar | dstar = subject.getAMapping() |
-    nodeFrom.asCfgNode().getNode() = subject and
-    nodeTo.asCfgNode().getNode() = dstar.getTarget()
+    nodeFrom.(CfgNode).getNode().getNode() = subject and
+    nodeTo.(CfgNode).getNode().getNode() = dstar.getTarget()
   )
 }
 
@@ -251,8 +255,8 @@ predicate matchMappingClearStep(Node n, Content c) {
     key = keyValue.getKey() and
     dstar = subject.getAMapping()
   |
-    n.asCfgNode().getNode() = dstar.getTarget() and
-    c.(DictionaryElementContent).getKey() = key.getLiteral().(StrConst).getText()
+    n.(CfgNode).getNode().getNode() = dstar.getTarget() and
+    c.(DictionaryElementContent).getKey() = key.getLiteral().(StringLiteral).getText()
   )
 }
 
@@ -266,8 +270,8 @@ predicate matchClassReadStep(Node nodeFrom, Content c, Node nodeTo) {
     attr = keyword.getAttribute() and
     value = keyword.getValue()
   |
-    nodeFrom.asCfgNode().getNode() = subject and
-    nodeTo.asCfgNode().getNode() = value and
+    nodeFrom.(CfgNode).getNode().getNode() = subject and
+    nodeTo.(CfgNode).getNode().getNode() = value and
     c.(AttributeContent).getAttribute() = attr.getId()
   )
 }
